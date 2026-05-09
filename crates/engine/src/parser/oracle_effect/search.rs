@@ -787,7 +787,53 @@ fn parse_search_filter_disjunction(text: &str, ctx: &mut ParseContext) -> Option
         })
         .filter(search_filter_has_meaningful_content)
         .collect();
-    (filters.len() >= 2).then(|| normalize_search_filter(TargetFilter::Or { filters }))
+    (filters.len() >= 2).then(|| {
+        let filter = normalize_search_filter(TargetFilter::Or { filters });
+        apply_shared_leading_search_properties(filter_region, filter)
+    })
+}
+
+fn apply_shared_leading_search_properties(
+    filter_region: &str,
+    filter: TargetFilter,
+) -> TargetFilter {
+    if !filter_region.as_bytes().contains(&b',') {
+        return filter;
+    }
+
+    let suffix = leading_search_properties(filter_region);
+    if suffix.properties.is_empty() {
+        return filter;
+    }
+
+    if search_filter_all_land_subtype_branches(&filter) {
+        apply_search_suffix_constraints(filter, &suffix)
+    } else {
+        filter
+    }
+}
+
+fn leading_search_properties(filter_region: &str) -> SearchSuffixConstraints {
+    let mut suffix = SearchSuffixConstraints::default();
+    let mut remaining = filter_region;
+    while let Ok((rest, property)) = parse_search_leading_filter_property(remaining) {
+        suffix.properties.push(property);
+        remaining = rest;
+    }
+    suffix
+}
+
+fn search_filter_all_land_subtype_branches(filter: &TargetFilter) -> bool {
+    match filter {
+        TargetFilter::Typed(typed) => typed.type_filters.iter().any(|type_filter| {
+            matches!(type_filter, TypeFilter::Subtype(subtype)
+                if infer_core_type_for_subtype(subtype) == Some(CoreType::Land))
+        }),
+        TargetFilter::Or { filters } | TargetFilter::And { filters } => {
+            filters.iter().all(search_filter_all_land_subtype_branches)
+        }
+        _ => false,
+    }
 }
 
 /// Split a single search-filter expression on disjunctive filter boundaries:
@@ -2774,6 +2820,32 @@ mod tests {
                 value: crate::types::card_type::Supertype::Basic
             }
         )));
+    }
+
+    #[test]
+    fn parse_search_filter_applies_shared_basic_to_land_subtype_list() {
+        let filter = parse_search_filter(
+            "basic swamp, forest, or island card",
+            &mut ParseContext::default(),
+        );
+        let TargetFilter::Or { filters } = filter else {
+            panic!("expected Or filter, got {filter:?}");
+        };
+        assert_eq!(filters.len(), 3);
+
+        for (filter, subtype) in filters.iter().zip(["Swamp", "Forest", "Island"]) {
+            let TargetFilter::Typed(typed) = filter else {
+                panic!("expected typed {subtype} branch, got {filter:?}");
+            };
+            assert!(typed.type_filters.contains(&TypeFilter::Land));
+            assert_eq!(typed.get_subtype(), Some(subtype));
+            assert!(typed.properties.iter().any(|property| matches!(
+                property,
+                FilterProp::HasSupertype {
+                    value: Supertype::Basic
+                }
+            )));
+        }
     }
 
     #[test]

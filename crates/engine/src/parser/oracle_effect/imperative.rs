@@ -381,6 +381,12 @@ pub(super) fn parse_numeric_imperative_ast(
                 {
                     return Some(NumericImperativeAst::LoseLife { amount: qty });
                 }
+                if let Some((amount, remainder)) = parse_count_expr(amount_phrase) {
+                    if remainder.trim().is_empty() {
+                        return Some(NumericImperativeAst::LoseLife { amount });
+                    }
+                }
+                return None;
             }
             // CR 119.3: LoseLife committed but neither the event-context phrase
             // nor a numeric tail parsed — return None so the line lands in
@@ -6171,6 +6177,30 @@ mod tests {
             other => panic!("Expected LoseLife, got {other:?}"),
         }
     }
+
+    #[test]
+    fn parse_lose_life_two_times_x() {
+        let text = "lose two times X life";
+        let lower = text.to_lowercase();
+        let result = parse_numeric_imperative_ast(text, &lower);
+        assert!(result.is_some(), "Should parse multiplied X life loss");
+        match result.unwrap() {
+            NumericImperativeAst::LoseLife { amount } => match amount {
+                QuantityExpr::Multiply { factor, inner } => {
+                    assert_eq!(factor, 2);
+                    assert!(matches!(
+                        *inner,
+                        QuantityExpr::Ref {
+                            qty: QuantityRef::Variable { .. }
+                        }
+                    ));
+                }
+                other => panic!("Expected Multiply, got {other:?}"),
+            },
+            other => panic!("Expected LoseLife, got {other:?}"),
+        }
+    }
+
     #[test]
     fn parse_gain_life_equal_to_power() {
         let text = "gain life equal to its power";

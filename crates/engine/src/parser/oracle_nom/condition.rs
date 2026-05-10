@@ -1488,7 +1488,7 @@ fn parse_card_left_your_graveyard_this_turn(input: &str) -> OracleResult<'_, Sta
             QuantityRef::ZoneChangeCountThisTurn {
                 from: Some(Zone::Graveyard),
                 to: None,
-                filter: add_owned_you_non_token(TargetFilter::Any),
+                filter: add_owned_you_with_props(TargetFilter::Any, &[FilterProp::NonToken]),
             },
             1,
         ),
@@ -1518,7 +1518,7 @@ fn parse_permanent_put_into_your_hand_from_battlefield_this_turn(
             QuantityRef::ZoneChangeCountThisTurn {
                 from: Some(Zone::Battlefield),
                 to: Some(Zone::Hand),
-                filter: add_owned_you(filter),
+                filter: add_owned_you_with_props(filter, &[]),
             },
             1,
         ),
@@ -1546,7 +1546,7 @@ fn parse_card_put_into_your_graveyard_from_anywhere_this_turn(
             QuantityRef::ZoneChangeCountThisTurn {
                 from: None,
                 to: Some(Zone::Graveyard),
-                filter: add_owned_you_non_token(filter),
+                filter: add_owned_you_with_props(filter, &[FilterProp::NonToken]),
             },
             1,
         ),
@@ -1581,56 +1581,38 @@ fn parse_object_put_into_graveyard_from_battlefield_this_turn(
     ))
 }
 
-fn add_owned_you(filter: TargetFilter) -> TargetFilter {
+/// CR 109.5: Append `Owned { controller: You }` plus any caller-supplied
+/// `extras` to `filter`'s property set, skipping props whose variant tag
+/// already appears (presence is variant-tag equality via `mem::discriminant`,
+/// matching the original tag-only `matches!(p, FilterProp::X { .. })` checks).
+/// Pass `&[]` for the bare "owned by you" case; pass `&[FilterProp::NonToken]`
+/// for "you own a nontoken card" patterns. Wraps `TargetFilter::Any` into a
+/// fresh `Typed` filter carrying the same property set; returns other variants
+/// (`Player`, `SpecificObject`, …) unchanged because owner-tagging is
+/// meaningless on non-typed shapes.
+fn add_owned_you_with_props(filter: TargetFilter, extras: &[FilterProp]) -> TargetFilter {
+    let owned = FilterProp::Owned {
+        controller: ControllerRef::You,
+    };
+    let push_unique_by_tag = |props: &mut Vec<FilterProp>, prop: FilterProp| {
+        let tag = std::mem::discriminant(&prop);
+        if !props.iter().any(|p| std::mem::discriminant(p) == tag) {
+            props.push(prop);
+        }
+    };
     match filter {
         TargetFilter::Typed(mut typed) => {
-            if !typed
-                .properties
-                .iter()
-                .any(|property| matches!(property, FilterProp::Owned { .. }))
-            {
-                typed.properties.push(FilterProp::Owned {
-                    controller: ControllerRef::You,
-                });
+            push_unique_by_tag(&mut typed.properties, owned);
+            for extra in extras {
+                push_unique_by_tag(&mut typed.properties, extra.clone());
             }
             TargetFilter::Typed(typed)
         }
         TargetFilter::Any => {
-            TargetFilter::Typed(TypedFilter::default().properties(vec![FilterProp::Owned {
-                controller: ControllerRef::You,
-            }]))
+            let mut props = vec![owned];
+            props.extend(extras.iter().cloned());
+            TargetFilter::Typed(TypedFilter::default().properties(props))
         }
-        other => other,
-    }
-}
-
-fn add_owned_you_non_token(filter: TargetFilter) -> TargetFilter {
-    match filter {
-        TargetFilter::Typed(mut typed) => {
-            if !typed
-                .properties
-                .iter()
-                .any(|prop| matches!(prop, FilterProp::Owned { .. }))
-            {
-                typed.properties.push(FilterProp::Owned {
-                    controller: ControllerRef::You,
-                });
-            }
-            if !typed
-                .properties
-                .iter()
-                .any(|prop| matches!(prop, FilterProp::NonToken))
-            {
-                typed.properties.push(FilterProp::NonToken);
-            }
-            TargetFilter::Typed(typed)
-        }
-        TargetFilter::Any => TargetFilter::Typed(TypedFilter::default().properties(vec![
-            FilterProp::Owned {
-                controller: ControllerRef::You,
-            },
-            FilterProp::NonToken,
-        ])),
         other => other,
     }
 }
@@ -7120,5 +7102,62 @@ mod tests {
             AggregateProperty(crate::types::ability::ObjectProperty::Toughness),
             10,
         );
+    }
+
+    /// CR 109.5: `add_owned_you_with_props` is the unified replacement for the
+    /// prior `add_owned_you` / `add_owned_you_non_token` pair. With an empty
+    /// extras slice it must produce only the `Owned { You }` tag (the bare
+    /// "owned by you" shape); with `&[FilterProp::NonToken]` it must additionally
+    /// carry the `NonToken` tag. Both `Typed` inputs and `Any` (lifted to a
+    /// fresh `Typed` filter) must follow the same uniqueness rule.
+    #[test]
+    fn add_owned_you_with_props_matches_legacy_helper_shapes() {
+        // Empty extras + Any input → fresh Typed filter with Owned only.
+        let owned_only = add_owned_you_with_props(TargetFilter::Any, &[]);
+        assert_eq!(
+            owned_only,
+            TargetFilter::Typed(TypedFilter::default().properties(vec![FilterProp::Owned {
+                controller: ControllerRef::You,
+            }])),
+        );
+
+        // NonToken extras + Any input → Owned + NonToken in that order.
+        let owned_non_token = add_owned_you_with_props(TargetFilter::Any, &[FilterProp::NonToken]);
+        assert_eq!(
+            owned_non_token,
+            TargetFilter::Typed(TypedFilter::default().properties(vec![
+                FilterProp::Owned {
+                    controller: ControllerRef::You,
+                },
+                FilterProp::NonToken,
+            ])),
+        );
+
+        // Typed input that already carries an `Owned { Opponent }` tag must NOT
+        // gain a second `Owned` entry — variant-tag uniqueness, not value
+        // equality. This mirrors the legacy `matches!(p, FilterProp::Owned { .. })`
+        // presence check.
+        let pre_owned =
+            TargetFilter::Typed(TypedFilter::creature().properties(vec![FilterProp::Owned {
+                controller: ControllerRef::Opponent,
+            }]));
+        let after = add_owned_you_with_props(pre_owned.clone(), &[FilterProp::NonToken]);
+        match after {
+            TargetFilter::Typed(typed) => {
+                let owned_count = typed
+                    .properties
+                    .iter()
+                    .filter(|p| matches!(p, FilterProp::Owned { .. }))
+                    .count();
+                assert_eq!(owned_count, 1, "must not duplicate Owned tag");
+                assert!(typed.properties.contains(&FilterProp::NonToken));
+            }
+            other => panic!("expected Typed, got {other:?}"),
+        }
+
+        // Non-typed/non-Any inputs (e.g., Player) must pass through unchanged
+        // — owner-tagging is meaningless on those shapes.
+        let unchanged = add_owned_you_with_props(TargetFilter::Player, &[FilterProp::NonToken]);
+        assert_eq!(unchanged, TargetFilter::Player);
     }
 }

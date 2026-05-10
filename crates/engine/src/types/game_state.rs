@@ -188,9 +188,35 @@ pub struct SpellCastRecord {
     pub has_x_in_cost: bool,
     /// CR 400.1 + CR 601.2a: Zone the spell was cast from, captured at cast-time
     /// so per-turn spell-history conditions can answer "from your hand" after
-    /// the spell has moved on from the stack.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub from_zone: Option<Zone>,
+    /// the spell has moved on from the stack. Per CR 601.2a every cast spell
+    /// is moved "from where it is" to the stack, so this field is always
+    /// populated. Older serialized snapshots emitted this as `Option<Zone>`
+    /// (with `null` for the default); the custom deserializer accepts both
+    /// shapes and falls back to `Zone::Hand` (the dominant origin per
+    /// CR 601.2a) when the field is missing or `null`.
+    #[serde(
+        default = "default_spell_cast_record_from_zone",
+        deserialize_with = "deserialize_spell_cast_record_from_zone"
+    )]
+    pub from_zone: Zone,
+}
+
+/// CR 601.2a: Default origin zone for `SpellCastRecord.from_zone`. Hand is the
+/// overwhelmingly common cast origin, so it's the safe default for snapshots
+/// that pre-date the non-Option migration.
+fn default_spell_cast_record_from_zone() -> Zone {
+    Zone::Hand
+}
+
+/// Backwards-compatible deserializer for `SpellCastRecord.from_zone`. Accepts
+/// the modern non-Option encoding (`"Hand"`, `"Battlefield"`, …), the legacy
+/// `Option<Zone>` encoding (`null` → `Zone::Hand`), and absent fields (handled
+/// by `#[serde(default = …)]` upstream of this hook).
+fn deserialize_spell_cast_record_from_zone<'de, D>(de: D) -> Result<Zone, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Ok(Option::<Zone>::deserialize(de)?.unwrap_or_else(default_spell_cast_record_from_zone))
 }
 
 /// CR 601.2f: A pending one-shot cost reduction for the next spell a player casts.
@@ -4503,5 +4529,63 @@ mod tests {
             other => panic!("expected Resolved after migration, got {other:?}"),
         }
         assert!(state.legacy_post_replacement_resolved_effect.is_none());
+    }
+
+    /// CR 601.2a: A `SpellCastRecord` snapshot from an older serialized state
+    /// (when `from_zone` was `Option<Zone>` and the default was `null`) must
+    /// deserialize into a record whose `from_zone` is `Zone::Hand` — the
+    /// dominant cast-from origin per CR 601.2a.
+    #[test]
+    fn spell_cast_record_legacy_null_from_zone_deserializes_to_hand() {
+        let legacy_json = r#"{
+            "core_types": ["Creature"],
+            "supertypes": [],
+            "subtypes": ["Bird"],
+            "keywords": ["Flying"],
+            "colors": ["Blue"],
+            "mana_value": 3,
+            "from_zone": null
+        }"#;
+        let record: SpellCastRecord = serde_json::from_str(legacy_json).unwrap();
+        assert_eq!(record.from_zone, Zone::Hand);
+    }
+
+    /// CR 601.2a: A `SpellCastRecord` snapshot that omits `from_zone` entirely
+    /// (e.g., a pre-migration snapshot serialized while the field still had
+    /// `skip_serializing_if = "Option::is_none"`) must deserialize into
+    /// `Zone::Hand` via the `serde(default = …)` hook.
+    #[test]
+    fn spell_cast_record_missing_from_zone_deserializes_to_hand() {
+        let no_field_json = r#"{
+            "core_types": ["Instant"],
+            "supertypes": [],
+            "subtypes": [],
+            "keywords": [],
+            "colors": [],
+            "mana_value": 1
+        }"#;
+        let record: SpellCastRecord = serde_json::from_str(no_field_json).unwrap();
+        assert_eq!(record.from_zone, Zone::Hand);
+    }
+
+    /// CR 601.2a: A snapshot with a real `from_zone` value (the modern non-Option
+    /// encoding) must deserialize unchanged — the legacy adapter must not
+    /// rewrite valid origin zones.
+    #[test]
+    fn spell_cast_record_explicit_from_zone_round_trips() {
+        let original = SpellCastRecord {
+            core_types: vec![CoreType::Sorcery],
+            supertypes: vec![],
+            subtypes: vec![],
+            keywords: vec![],
+            colors: vec![],
+            mana_value: 4,
+            has_x_in_cost: false,
+            from_zone: Zone::Graveyard,
+        };
+        let json = serde_json::to_string(&original).unwrap();
+        let round_tripped: SpellCastRecord = serde_json::from_str(&json).unwrap();
+        assert_eq!(round_tripped, original);
+        assert_eq!(round_tripped.from_zone, Zone::Graveyard);
     }
 }

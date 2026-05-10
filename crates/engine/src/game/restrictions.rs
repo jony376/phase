@@ -137,19 +137,24 @@ pub fn add_mana_cost(base: &ManaCost, extra: &ManaCost) -> ManaCost {
 
 /// CR 601.2i: Once the steps of casting a spell are complete, the spell becomes cast.
 /// Records per-player and per-turn spell casting history for restriction checking.
+/// CR 601.2a: Every cast spell has a from-zone, but the broader `GameObject`
+/// surface (`obj.cast_from_zone`) carries an `Option<Zone>` because non-cast
+/// objects (tokens, emblems) lack one. Tests that exercise this helper without
+/// having gone through the cast pipeline default the missing zone to
+/// `Zone::Hand` — the canonical fallback used elsewhere by `SpellCastRecord`.
 pub fn record_spell_cast(
     state: &mut crate::types::game_state::GameState,
     player: PlayerId,
     obj: &GameObject,
 ) {
-    record_spell_cast_from_zone(state, player, obj, obj.cast_from_zone);
+    record_spell_cast_from_zone(state, player, obj, obj.cast_from_zone.unwrap_or(Zone::Hand));
 }
 
 pub fn record_spell_cast_from_zone(
     state: &mut crate::types::game_state::GameState,
     player: PlayerId,
     obj: &GameObject,
-    from_zone: Option<Zone>,
+    from_zone: Zone,
 ) {
     state.spells_cast_this_turn = state.spells_cast_this_turn.saturating_add(1);
     *state.spells_cast_this_game.entry(player).or_insert(0) += 1;
@@ -1434,7 +1439,7 @@ mod tests {
                 colors: Vec::new(),
                 mana_value: 1,
                 has_x_in_cost: false,
-                from_zone: None,
+                from_zone: Zone::Hand,
             }],
         );
 
@@ -1466,7 +1471,7 @@ mod tests {
                     colors: Vec::new(),
                     mana_value: 1,
                     has_x_in_cost: false,
-                    from_zone: None,
+                    from_zone: Zone::Hand,
                 },
                 crate::types::game_state::SpellCastRecord {
                     core_types: vec![CoreType::Sorcery],
@@ -1476,7 +1481,7 @@ mod tests {
                     colors: Vec::new(),
                     mana_value: 2,
                     has_x_in_cost: false,
-                    from_zone: None,
+                    from_zone: Zone::Hand,
                 },
                 crate::types::game_state::SpellCastRecord {
                     core_types: vec![CoreType::Instant],
@@ -1486,7 +1491,7 @@ mod tests {
                     colors: Vec::new(),
                     mana_value: 3,
                     has_x_in_cost: false,
-                    from_zone: None,
+                    from_zone: Zone::Hand,
                 },
             ],
         );

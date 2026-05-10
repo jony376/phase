@@ -2882,7 +2882,7 @@ pub mod tests {
             colors: Vec::new(),
             mana_value: 1,
             has_x_in_cost: false,
-            from_zone: None,
+            from_zone: Zone::Hand,
         };
         let current_record = SpellCastRecord {
             core_types: vec![CoreType::Instant],
@@ -2892,7 +2892,7 @@ pub mod tests {
             colors: Vec::new(),
             mana_value: 1,
             has_x_in_cost: false,
-            from_zone: None,
+            from_zone: Zone::Hand,
         };
         state
             .spells_cast_this_turn_by_player
@@ -4729,7 +4729,7 @@ pub mod tests {
                     colors: vec![ManaColor::Blue],
                     mana_value: 1,
                     has_x_in_cost: false,
-                    from_zone: None,
+                    from_zone: Zone::Hand,
                 },
                 SpellCastRecord {
                     core_types: vec![CoreType::Creature],
@@ -4739,7 +4739,7 @@ pub mod tests {
                     colors: vec![ManaColor::Blue],
                     mana_value: 3,
                     has_x_in_cost: false,
-                    from_zone: None,
+                    from_zone: Zone::Hand,
                 },
             ],
         );
@@ -7100,7 +7100,7 @@ pub mod tests {
                 colors: vec![],
                 mana_value: 3,
                 has_x_in_cost: true,
-                from_zone: None,
+                from_zone: Zone::Hand,
             }],
         );
         assert!(
@@ -7119,7 +7119,7 @@ pub mod tests {
                 colors: vec![],
                 mana_value: 1,
                 has_x_in_cost: false,
-                from_zone: None,
+                from_zone: Zone::Hand,
             }],
         );
         assert!(
@@ -7139,7 +7139,7 @@ pub mod tests {
                     colors: vec![],
                     mana_value: 2,
                     has_x_in_cost: true,
-                    from_zone: None,
+                    from_zone: Zone::Hand,
                 },
                 SpellCastRecord {
                     core_types: vec![CoreType::Sorcery],
@@ -7149,7 +7149,7 @@ pub mod tests {
                     colors: vec![],
                     mana_value: 4,
                     has_x_in_cost: true,
-                    from_zone: None,
+                    from_zone: Zone::Hand,
                 },
             ],
         );
@@ -7170,7 +7170,7 @@ pub mod tests {
                     colors: vec![],
                     mana_value: 2,
                     has_x_in_cost: true,
-                    from_zone: None,
+                    from_zone: Zone::Hand,
                 },
                 SpellCastRecord {
                     core_types: vec![CoreType::Instant],
@@ -7180,7 +7180,7 @@ pub mod tests {
                     colors: vec![],
                     mana_value: 1,
                     has_x_in_cost: false,
-                    from_zone: None,
+                    from_zone: Zone::Hand,
                 },
                 SpellCastRecord {
                     core_types: vec![CoreType::Sorcery],
@@ -7190,7 +7190,7 @@ pub mod tests {
                     colors: vec![],
                     mana_value: 4,
                     has_x_in_cost: true,
-                    from_zone: None,
+                    from_zone: Zone::Hand,
                 },
             ],
         );
@@ -7211,7 +7211,7 @@ pub mod tests {
                 colors: vec![],
                 mana_value: 1,
                 has_x_in_cost: false,
-                from_zone: None,
+                from_zone: Zone::Hand,
             }
         }
 

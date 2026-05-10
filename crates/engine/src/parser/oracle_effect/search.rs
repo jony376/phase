@@ -929,7 +929,8 @@ fn split_filter_disjunctions(filter_region: &str) -> Vec<&str> {
         // mishandled — bail rather than over-split.
         if disjunction.connector == Connector::AndOr
             && disjunction.leading == Leading::None
-            && before.as_bytes().contains(&b',') // structural: not dispatch (comma presence check)
+            && before.as_bytes().contains(&b',')
+        // structural: not dispatch (comma presence check)
         {
             if segments.is_empty() {
                 return vec![filter_region.trim()];

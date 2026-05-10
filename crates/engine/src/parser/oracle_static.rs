@@ -5,7 +5,7 @@ use crate::parser::oracle_nom::error::OracleError;
 use nom::branch::alt;
 use nom::bytes::complete::{tag, tag_no_case, take_until};
 use nom::character::complete::{alpha1, space1};
-use nom::combinator::{all_consuming, opt, rest, value};
+use nom::combinator::{all_consuming, eof, opt, rest, value};
 use nom::multi::many0;
 use nom::sequence::{preceded, terminated};
 use nom::Parser;
@@ -42,8 +42,8 @@ use crate::types::keywords::{Keyword, KeywordKind};
 use crate::types::mana::{ManaColor, ManaCost};
 use crate::types::phase::Phase;
 use crate::types::statics::{
-    ActivationExemption, CastFrequency, CastingProhibitionCondition, HandSizeModification,
-    ProhibitionScope, StaticMode, TriggerCause,
+    ActivationExemption, CastFrequency, CastingProhibitionCondition, CostPaymentProhibition,
+    HandSizeModification, ProhibitionScope, StaticMode, TriggerCause,
 };
 use crate::types::zones::Zone;
 
@@ -377,6 +377,42 @@ enum InvertedAsLongAs {
     Skip,
 }
 
+fn parse_cost_payment_prohibition_statics(
+    tp: &TextPair<'_>,
+    text: &str,
+) -> Option<Vec<StaticDefinition>> {
+    let (who, predicate) = strip_casting_prohibition_subject(tp.lower)?;
+    let (rest, _) = tag::<_, _, OracleError<'_>>("can't pay life or sacrifice ")
+        .parse(predicate)
+        .ok()?;
+    let (after_suffix, filter_text) = terminated(
+        take_until::<_, _, OracleError<'_>>(" to cast spells or activate abilities"),
+        tag::<_, _, OracleError<'_>>(" to cast spells or activate abilities"),
+    )
+    .parse(rest)
+    .ok()?;
+    let (_, _) = (opt(tag::<_, _, OracleError<'_>>(".")), eof)
+        .parse(after_suffix)
+        .ok()?;
+    let (filter, filter_remainder) = parse_type_phrase(filter_text.trim());
+    if !filter_remainder.trim().is_empty() || matches!(filter, TargetFilter::Any) {
+        return None;
+    }
+
+    Some(vec![
+        StaticDefinition::new(StaticMode::CantPayCost {
+            who: who.clone(),
+            cost: CostPaymentProhibition::PayLife,
+        })
+        .description(text.to_string()),
+        StaticDefinition::new(StaticMode::CantPayCost {
+            who,
+            cost: CostPaymentProhibition::Sacrifice { filter },
+        })
+        .description(text.to_string()),
+    ])
+}
+
 /// Parse a static/continuous ability line into a StaticDefinition.
 /// Handles: "Enchanted creature gets +N/+M", "has {keyword}",
 /// "Creatures you control get +N/+M", etc.
@@ -454,6 +490,10 @@ fn parse_static_line_inner(text: &str, inverted: InvertedAsLongAs) -> Option<Sta
     let text = strip_reminder_text(text);
     let lower = text.to_lowercase();
     let tp = TextPair::new(&text, &lower);
+
+    if let Some(defs) = parse_cost_payment_prohibition_statics(&tp, &text) {
+        return defs.into_iter().next();
+    }
 
     if let Some(def) = parse_loyalty_activation_timing_permission(&tp, &text) {
         return Some(def);
@@ -2012,6 +2052,11 @@ pub(crate) fn parse_static_line_multi_ir(text: &str) -> Vec<StaticIr> {
 fn parse_static_line_multi_inner(text: &str) -> Vec<StaticDefinition> {
     let stripped = strip_reminder_text(text);
     let lower = stripped.to_lowercase();
+    let tp = TextPair::new(&stripped, &lower);
+
+    if let Some(defs) = parse_cost_payment_prohibition_statics(&tp, &stripped) {
+        return defs;
+    }
 
     if let Some(defs) = parse_compound_subject_rule_static(&stripped, &lower) {
         return defs;
@@ -15027,6 +15072,34 @@ mod tests {
         let def = parse_static_line("This creature can't be equipped.").unwrap();
         assert_eq!(def.mode, StaticMode::Other("CantBeEquipped".to_string()));
         assert_eq!(def.affected, Some(TargetFilter::SelfRef));
+    }
+
+    #[test]
+    fn static_cant_pay_life_or_sacrifice_nonland_permanents_emits_cost_locks() {
+        let defs = parse_static_line_multi(
+            "Players can't pay life or sacrifice nonland permanents to cast spells or activate abilities.",
+        );
+        assert_eq!(defs.len(), 2, "expected pay-life and sacrifice locks");
+
+        assert!(defs.iter().any(|def| matches!(
+            def.mode,
+            StaticMode::CantPayCost {
+                who: ProhibitionScope::AllPlayers,
+                cost: CostPaymentProhibition::PayLife,
+            }
+        )));
+        assert!(defs.iter().any(|def| matches!(
+            &def.mode,
+            StaticMode::CantPayCost {
+                who: ProhibitionScope::AllPlayers,
+                cost: CostPaymentProhibition::Sacrifice {
+                    filter: TargetFilter::Typed(filter),
+                },
+            } if filter.type_filters.contains(&TypeFilter::Permanent)
+                && filter
+                    .type_filters
+                    .contains(&TypeFilter::Non(Box::new(TypeFilter::Land)))
+        )));
     }
 
     #[test]

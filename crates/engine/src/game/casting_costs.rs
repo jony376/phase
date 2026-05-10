@@ -29,7 +29,7 @@ use super::ability_utils::{
     build_target_slots, flatten_targets_in_chain, modal_choice_for_player,
     target_constraints_from_modal,
 };
-use super::life_costs::{pay_life_as_cost, PayLifeCostResult};
+use super::life_costs::PayLifeCostResult;
 
 /// Handle the player's decision on an additional cost (kicker, blight, "or pay").
 ///
@@ -1268,7 +1268,9 @@ fn find_defiler_reduction(
                     // CR 118.3 + CR 119.4b + CR 119.8: Don't offer the Defiler
                     // prompt when the caster can't actually pay the life — this
                     // keeps the UI from presenting an impossible choice.
-                    if !super::life_costs::can_pay_life_cost(state, caster, *life_cost) {
+                    if !super::life_costs::can_pay_life_cast_or_activation_cost(
+                        state, caster, *life_cost,
+                    ) {
                         return None;
                     }
                     return Some((*life_cost, mana_reduction.clone()));
@@ -1300,11 +1302,13 @@ pub(crate) fn handle_defiler_payment(
         // pipeline and CantLoseLife lock are honored. If the cost can't be paid
         // (insufficient life or locked), fall through to casting without the
         // reduction — the Defiler prompt must not half-apply.
-        let payment = pay_life_as_cost(state, player, life_cost, events);
+        let payment = super::life_costs::pay_life_as_cast_or_activation_cost(
+            state, player, life_cost, events,
+        );
         let reduction_applied = payment.is_paid();
         match payment {
             PayLifeCostResult::Paid { .. } => {}
-            PayLifeCostResult::InsufficientLife | PayLifeCostResult::LockedCantLoseLife => {
+            PayLifeCostResult::InsufficientLife | PayLifeCostResult::Prohibited => {
                 // Proceed with the original cost; no reduction.
             }
         }
@@ -1386,9 +1390,11 @@ fn pay_additional_cost(
             let resolved =
                 super::quantity::resolve_quantity(state, &amount, player, pending.object_id).max(0)
                     as u32;
-            match pay_life_as_cost(state, player, resolved, events) {
+            match super::life_costs::pay_life_as_cast_or_activation_cost(
+                state, player, resolved, events,
+            ) {
                 PayLifeCostResult::Paid { .. } => {}
-                PayLifeCostResult::InsufficientLife | PayLifeCostResult::LockedCantLoseLife => {
+                PayLifeCostResult::InsufficientLife | PayLifeCostResult::Prohibited => {
                     return Err(EngineError::ActionNotAllowed(
                         "Cannot pay life cost".to_string(),
                     ));
@@ -1464,6 +1470,15 @@ fn pay_additional_cost(
         }
         AbilityCost::Sacrifice { ref target, .. } => {
             if matches!(target, crate::types::ability::TargetFilter::SelfRef) {
+                if super::static_abilities::player_cant_sacrifice_as_cost(
+                    state,
+                    player,
+                    pending.object_id,
+                ) {
+                    return Err(EngineError::ActionNotAllowed(
+                        "Cannot sacrifice this permanent as a cost".into(),
+                    ));
+                }
                 // CR 118.3: Self-sacrifice is atomic — no player choice needed
                 super::sacrifice::sacrifice_permanent(state, pending.object_id, player, events)
                     .map_err(|e| EngineError::InvalidAction(format!("{e}")))?;

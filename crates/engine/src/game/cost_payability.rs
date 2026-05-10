@@ -87,7 +87,10 @@ impl AbilityCost {
                     return state
                         .objects
                         .get(&source)
-                        .is_some_and(|o| o.zone == Zone::Battlefield);
+                        .is_some_and(|o| o.zone == Zone::Battlefield)
+                        && !super::static_abilities::player_cant_sacrifice_as_cost(
+                            state, player, source,
+                        );
                 }
                 super::casting::find_eligible_sacrifice_targets(state, player, source, target).len()
                     >= *count as usize
@@ -99,7 +102,7 @@ impl AbilityCost {
             AbilityCost::PayLife { amount } => {
                 let resolved =
                     super::quantity::resolve_quantity(state, amount, player, source).max(0) as u32;
-                super::life_costs::can_pay_life_cost(state, player, resolved)
+                super::life_costs::can_pay_life_cast_or_activation_cost(state, player, resolved)
             }
             // CR 601.2b: Discard requires a choice of card from hand.
             // For `self_ref`, the source card itself must still be in hand.

@@ -3700,7 +3700,7 @@ pub fn can_cast_object_now(state: &GameState, player: PlayerId, object_id: Objec
             super::keywords::effective_flashback_cost(state, prepared.object_id)
         {
             if let Some(amount) = find_pay_life_cost(cost, state, player, prepared.object_id) {
-                if !super::life_costs::can_pay_life_cost(state, player, amount) {
+                if !super::life_costs::can_pay_life_cast_or_activation_cost(state, player, amount) {
                     return false;
                 }
             }
@@ -3719,7 +3719,7 @@ pub fn can_cast_object_now(state: &GameState, player: PlayerId, object_id: Objec
         .and_then(|o| o.additional_cost.as_ref())
     {
         if let Some(amount) = find_pay_life_cost(cost, state, player, prepared.object_id) {
-            if !super::life_costs::can_pay_life_cost(state, player, amount) {
+            if !super::life_costs::can_pay_life_cast_or_activation_cost(state, player, amount) {
                 return false;
             }
         }
@@ -4061,10 +4061,11 @@ fn auto_tap_and_pay_cost(
     // short-circuit apply consistently).
     for payment in &life_payments {
         let amount = u32::try_from(payment.amount).unwrap_or(0);
-        match super::life_costs::pay_life_as_cost(state, player, amount, events) {
+        match super::life_costs::pay_life_as_cast_or_activation_cost(state, player, amount, events)
+        {
             super::life_costs::PayLifeCostResult::Paid { .. } => {}
             super::life_costs::PayLifeCostResult::InsufficientLife
-            | super::life_costs::PayLifeCostResult::LockedCantLoseLife => {
+            | super::life_costs::PayLifeCostResult::Prohibited => {
                 return Err(EngineError::ActionNotAllowed(
                     "Cannot pay Phyrexian life cost".to_string(),
                 ));
@@ -4202,10 +4203,12 @@ pub fn pay_ability_cost(
         AbilityCost::PayLife { amount } => {
             let amount = resolve_quantity(state, amount, player, source_id);
             let amount = u32::try_from(amount.max(0)).unwrap_or(0);
-            match super::life_costs::pay_life_as_cost(state, player, amount, events) {
+            match super::life_costs::pay_life_as_cast_or_activation_cost(
+                state, player, amount, events,
+            ) {
                 super::life_costs::PayLifeCostResult::Paid { .. } => {}
                 super::life_costs::PayLifeCostResult::InsufficientLife
-                | super::life_costs::PayLifeCostResult::LockedCantLoseLife => {
+                | super::life_costs::PayLifeCostResult::Prohibited => {
                     return Err(EngineError::ActionNotAllowed(
                         "Cannot pay life cost".to_string(),
                     ));
@@ -4215,6 +4218,12 @@ pub fn pay_ability_cost(
         // CR 118.3: Sacrifice as a cost — sacrifice the source (SelfRef) or a chosen permanent.
         AbilityCost::Sacrifice { target, .. } => {
             if matches!(target, TargetFilter::SelfRef) {
+                if super::static_abilities::player_cant_sacrifice_as_cost(state, player, source_id)
+                {
+                    return Err(EngineError::ActionNotAllowed(
+                        "Cannot sacrifice this permanent as a cost".to_string(),
+                    ));
+                }
                 match super::sacrifice::sacrifice_permanent(state, source_id, player, events)? {
                     super::sacrifice::SacrificeOutcome::Complete => {}
                     super::sacrifice::SacrificeOutcome::NeedsReplacementChoice(_) => {
@@ -4754,6 +4763,9 @@ pub(super) fn find_eligible_sacrifice_targets(
             if obj.controller != player {
                 return false;
             }
+            if super::static_abilities::player_cant_sacrifice_as_cost(state, player, id) {
+                return false;
+            }
             super::filter::matches_target_filter(
                 state,
                 id,
@@ -4796,7 +4808,7 @@ fn can_pay_ability_cost_now(
     // CantLoseLife so locked or underfunded activated abilities never appear
     // as legal actions. The real payment is applied by `pay_ability_cost`.
     if let Some(amount) = find_pay_life_cost(cost, state, player, source_id) {
-        if !super::life_costs::can_pay_life_cost(state, player, amount) {
+        if !super::life_costs::can_pay_life_cast_or_activation_cost(state, player, amount) {
             return false;
         }
     }
@@ -8023,6 +8035,98 @@ mod tests {
         assert_eq!(state.objects[&land].zone, Zone::Graveyard);
         assert_eq!(state.stack.len(), 1);
         assert_eq!(state.players[0].mana_pool.total(), 0);
+    }
+
+    #[test]
+    fn cant_pay_cost_sacrifice_filters_forbidden_permanents_only() {
+        let mut state = setup_game_at_main_phase();
+        let spell = create_object(
+            &mut state,
+            CardId(9236),
+            PlayerId(0),
+            "Generic Sacrifice Spell".to_string(),
+            Zone::Hand,
+        );
+        {
+            let obj = state.objects.get_mut(&spell).unwrap();
+            obj.card_types.core_types.push(CoreType::Sorcery);
+            obj.additional_cost = Some(AdditionalCost::Required(AbilityCost::Sacrifice {
+                target: TargetFilter::Typed(TypedFilter::permanent()),
+                count: 1,
+            }));
+            Arc::make_mut(&mut obj.abilities).push(AbilityDefinition::new(
+                AbilityKind::Spell,
+                Effect::Draw {
+                    count: QuantityExpr::Fixed { value: 1 },
+                    target: TargetFilter::Controller,
+                },
+            ));
+        }
+        let land = create_object(
+            &mut state,
+            CardId(9237),
+            PlayerId(0),
+            "Forest".to_string(),
+            Zone::Battlefield,
+        );
+        state
+            .objects
+            .get_mut(&land)
+            .unwrap()
+            .card_types
+            .core_types
+            .push(CoreType::Land);
+        let artifact = create_object(
+            &mut state,
+            CardId(9238),
+            PlayerId(0),
+            "Treasure".to_string(),
+            Zone::Battlefield,
+        );
+        state
+            .objects
+            .get_mut(&artifact)
+            .unwrap()
+            .card_types
+            .core_types
+            .push(CoreType::Artifact);
+        let lock = create_object(
+            &mut state,
+            CardId(9239),
+            PlayerId(0),
+            "Cost Lock".to_string(),
+            Zone::Battlefield,
+        );
+        state
+            .objects
+            .get_mut(&lock)
+            .unwrap()
+            .static_definitions
+            .push(StaticDefinition::new(
+                crate::types::statics::StaticMode::CantPayCost {
+                    who: crate::types::statics::ProhibitionScope::AllPlayers,
+                    cost: crate::types::statics::CostPaymentProhibition::Sacrifice {
+                        filter: TargetFilter::Typed(
+                            TypedFilter::permanent()
+                                .with_type(TypeFilter::Non(Box::new(TypeFilter::Land))),
+                        ),
+                    },
+                },
+            ));
+
+        let waiting = handle_cast_spell(
+            &mut state,
+            PlayerId(0),
+            spell,
+            CardId(9236),
+            &mut Vec::new(),
+        )
+        .expect("spell should still be castable by sacrificing a land");
+        let WaitingFor::SacrificeForCost { permanents, .. } = waiting else {
+            panic!("expected SacrificeForCost");
+        };
+
+        assert_eq!(permanents, vec![land]);
     }
 
     #[test]

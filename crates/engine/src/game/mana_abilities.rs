@@ -1291,6 +1291,13 @@ where
                         target: TargetFilter::SelfRef,
                         ..
                     } => {
+                        if super::static_abilities::player_cant_sacrifice_as_cost(
+                            state, player, source_id,
+                        ) {
+                            return Err(EngineError::ActionNotAllowed(
+                                "Cannot sacrifice this permanent as a cost".to_string(),
+                            ));
+                        }
                         let _ = sacrifice::sacrifice_permanent(state, source_id, player, events)?;
                     }
                     AbilityCost::Sacrifice { target, count } => {
@@ -1374,9 +1381,9 @@ fn pay_life_cost(
     // CR 118.3 + CR 119.4 + CR 119.8: Delegate to the single-authority helper
     // so mana-ability life costs honor the replacement pipeline and the
     // CantLoseLife lock identically to every other pay-life path.
-    match life_costs::pay_life_as_cost(state, player, amount, events) {
+    match life_costs::pay_life_as_cast_or_activation_cost(state, player, amount, events) {
         PayLifeCostResult::Paid { .. } => Ok(()),
-        PayLifeCostResult::InsufficientLife | PayLifeCostResult::LockedCantLoseLife => Err(
+        PayLifeCostResult::InsufficientLife | PayLifeCostResult::Prohibited => Err(
             EngineError::ActionNotAllowed("Cannot pay life cost for mana ability".to_string()),
         ),
     }
@@ -1887,6 +1894,11 @@ fn sacrifice_selected_permanent_for_mana_cost(
             "Selected permanent does not match the sacrifice cost filter".to_string(),
         ));
     }
+    if super::static_abilities::player_cant_sacrifice_as_cost(state, player, chosen_id) {
+        return Err(EngineError::ActionNotAllowed(
+            "Selected permanent cannot be sacrificed as a cost".to_string(),
+        ));
+    }
     match sacrifice::sacrifice_permanent(state, chosen_id, player, events)? {
         sacrifice::SacrificeOutcome::Complete => Ok(()),
         sacrifice::SacrificeOutcome::NeedsReplacementChoice(_) => Ok(()),
@@ -1941,7 +1953,7 @@ mod tests {
     use crate::types::game_state::{ExileLink, ExileLinkKind};
     use crate::types::identifiers::CardId;
     use crate::types::mana::{ManaColor, ManaCostShard, ManaType};
-    use crate::types::statics::StaticMode;
+    use crate::types::statics::{CostPaymentProhibition, ProhibitionScope, StaticMode};
     use crate::types::triggers::TriggerMode;
     use crate::types::zones::Zone;
 
@@ -4834,6 +4846,75 @@ mod tests {
         ));
         assert_eq!(state.objects.get(&creature).unwrap().zone, Zone::Graveyard);
         assert_eq!(state.players[0].mana_pool.count_color(ManaType::Black), 1);
+    }
+
+    #[test]
+    fn sacrifice_mana_cost_rejects_prohibited_selected_permanent() {
+        let mut state = GameState::new_two_player(42);
+        let altar = create_object(
+            &mut state,
+            CardId(0),
+            PlayerId(0),
+            "Phyrexian Altar".to_string(),
+            Zone::Battlefield,
+        );
+        let ability = make_phyrexian_altar_ability();
+        Arc::make_mut(&mut state.objects.get_mut(&altar).unwrap().abilities).push(ability);
+
+        let creature = spawn_creature_with_cost(
+            &mut state,
+            PlayerId(0),
+            "Grizzly Bears",
+            ManaCost::generic(2),
+        );
+        let lock = create_object(
+            &mut state,
+            CardId(0),
+            PlayerId(0),
+            "Cost Lock".to_string(),
+            Zone::Battlefield,
+        );
+        state
+            .objects
+            .get_mut(&lock)
+            .unwrap()
+            .static_definitions
+            .push(StaticDefinition::new(StaticMode::CantPayCost {
+                who: ProhibitionScope::AllPlayers,
+                cost: CostPaymentProhibition::Sacrifice {
+                    filter: TargetFilter::Typed(TypedFilter::creature()),
+                },
+            }));
+
+        let pending = PendingManaAbility {
+            player: PlayerId(0),
+            source_id: altar,
+            ability_index: 0,
+            color_override: Some(ProductionOverride::SingleColor(ManaType::Black)),
+            resume: ManaAbilityResume::Priority,
+            chosen_tappers: Vec::new(),
+            chosen_discards: Vec::new(),
+            chosen_mana_payment: None,
+            chosen_exiled_battlefield: Vec::new(),
+            chosen_sacrificed_battlefield: Vec::new(),
+            cost_paid_object: None,
+        };
+
+        let result = handle_sacrifice_for_mana_ability(
+            &mut state,
+            1,
+            &[creature],
+            &pending,
+            &[creature],
+            &mut Vec::new(),
+        );
+
+        assert!(result.is_err());
+        assert_eq!(
+            state.objects.get(&creature).unwrap().zone,
+            Zone::Battlefield
+        );
+        assert_eq!(state.players[0].mana_pool.count_color(ManaType::Black), 0);
     }
 
     #[test]

@@ -184,6 +184,29 @@ impl fmt::Display for ActivationExemption {
     }
 }
 
+/// CR 118.3 + CR 119.4b + CR 601.2h + CR 602.2b: A non-mana cost payment
+/// category prohibited by a static ability.
+///
+/// This is intentionally cost-scoped. `PayLife` blocks paying life as a cost
+/// without preventing damage or other life loss, unlike `CantLoseLife`.
+/// `Sacrifice` carries the object filter for the permanents that can't be
+/// sacrificed as costs, allowing "sacrifice a permanent" costs to remain
+/// payable with legal permanents outside the forbidden filter.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CostPaymentProhibition {
+    PayLife,
+    Sacrifice { filter: TargetFilter },
+}
+
+impl fmt::Display for CostPaymentProhibition {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            CostPaymentProhibition::PayLife => write!(f, "PayLife"),
+            CostPaymentProhibition::Sacrifice { .. } => write!(f, "Sacrifice"),
+        }
+    }
+}
+
 /// CR 601.2a + CR 601.2b: How often a casting-permission static may be used per turn.
 ///
 /// Replaces the older `once_per_turn: bool` flag on `GraveyardCastPermission` and
@@ -413,6 +436,17 @@ pub enum StaticMode {
         amount: ManaCost,
         spell_filter: Option<TargetFilter>,
         dynamic_count: Option<QuantityRef>,
+    },
+    /// CR 118.3 + CR 601.2h + CR 602.2b: The scoped player can't pay a
+    /// matching non-mana cost to cast spells or activate abilities.
+    ///
+    /// Yasharn's class: "Players can't pay life or sacrifice nonland
+    /// permanents to cast spells or activate abilities." This does not stop
+    /// life loss or effect-driven sacrifices; it is enforced only at cost
+    /// payability/payment boundaries.
+    CantPayCost {
+        who: ProhibitionScope,
+        cost: CostPaymentProhibition,
     },
     CantGainLife,
     CantLoseLife,
@@ -723,6 +757,7 @@ impl Hash for StaticMode {
             // These are never used as HashMap keys (handled by is_data_carrying_static).
             StaticMode::ReduceCost { .. }
             | StaticMode::RaiseCost { .. }
+            | StaticMode::CantPayCost { .. }
             | StaticMode::DefilerCostReduction { .. }
             | StaticMode::CantDraw { .. }
             | StaticMode::PerTurnCastLimit { .. }
@@ -778,6 +813,7 @@ impl fmt::Display for StaticMode {
                 write!(f, "ActivateAsInstant({cost_category:?})")
             }
             StaticMode::RaiseCost { .. } => write!(f, "RaiseCost"),
+            StaticMode::CantPayCost { who, cost } => write!(f, "CantPayCost({who},{cost})"),
             StaticMode::CantGainLife => write!(f, "CantGainLife"),
             StaticMode::CantLoseLife => write!(f, "CantLoseLife"),
             StaticMode::MustAttack => write!(f, "MustAttack"),
@@ -974,6 +1010,10 @@ impl FromStr for StaticMode {
                 amount: ManaCost::zero(),
                 spell_filter: None,
                 dynamic_count: None,
+            },
+            "CantPayCost" => StaticMode::CantPayCost {
+                who: ProhibitionScope::AllPlayers,
+                cost: CostPaymentProhibition::PayLife,
             },
             "CantGainLife" => StaticMode::CantGainLife,
             "CantLoseLife" => StaticMode::CantLoseLife,

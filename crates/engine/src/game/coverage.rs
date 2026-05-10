@@ -38,6 +38,7 @@ fn is_data_carrying_static(mode: &StaticMode) -> bool {
             | StaticMode::ReduceCost { .. }
             | StaticMode::RaiseCost { .. }
             | StaticMode::DefilerCostReduction { .. }
+            | StaticMode::CantPayCost { .. }
             | StaticMode::CantBeCast { .. }
             | StaticMode::CantCastDuring { .. }
             | StaticMode::PerTurnCastLimit { .. }

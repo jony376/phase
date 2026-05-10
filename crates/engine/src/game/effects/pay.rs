@@ -83,7 +83,7 @@ pub fn resolve(
             let amount = u32::try_from(amount.max(0)).unwrap_or(0);
             match pay_life_as_cost(state, payer, amount, events) {
                 PayLifeCostResult::Paid { .. } => {}
-                PayLifeCostResult::InsufficientLife | PayLifeCostResult::LockedCantLoseLife => {
+                PayLifeCostResult::InsufficientLife | PayLifeCostResult::Prohibited => {
                     state.cost_payment_failed_flag = true;
                 }
             }
@@ -178,7 +178,7 @@ fn resolve_ability_cost_payment(
             let amount = u32::try_from(amount.max(0)).unwrap_or(0);
             match pay_life_as_cost(state, payer, amount, events) {
                 PayLifeCostResult::Paid { .. } => {}
-                PayLifeCostResult::InsufficientLife | PayLifeCostResult::LockedCantLoseLife => {
+                PayLifeCostResult::InsufficientLife | PayLifeCostResult::Prohibited => {
                     state.cost_payment_failed_flag = true;
                 }
             }

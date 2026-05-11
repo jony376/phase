@@ -18,6 +18,15 @@ jq '.["card name"] | {abilities: [.abilities[]? | select(.effect.type == "Unimpl
 
 # Single card debug
 cargo run --bin oracle-gen -- data --filter "card name"
+
+# Active cluster trackers (open thematic workstreams) — see Cluster Tracking with Sub-Issues below
+gh issue list --repo phase-rs/phase --label "collector" --state open
+
+# View a tracker and its sub-issues
+gh issue view <N> --repo phase-rs/phase --json subIssues,title,body
+
+# Browse closed trackers (retrospective archive)
+gh issue list --repo phase-rs/phase --label "collector" --state closed --limit 50 --json number,title,closedAt
 ```
 
 ## GitHub Issue Workflow
@@ -223,6 +232,122 @@ needs-triage → confirmed → in-progress → fixed-unreleased → needs-runtim
                          → duplicate → closed
 ```
 
+## Cluster Tracking with Sub-Issues
+
+**Principle**: priority labels are perpetual buckets (queryable, auto-clean as issues close). Sub-issue trackers are *thematic workstreams with finite lifespans*. Trackers capture grouping rationale and ordering; they do NOT replace labels.
+
+### Decision rule
+
+Run at session end on newly filed issues, and at session start on the unclustered `status:confirmed` backlog (rate-limited: at most once per session).
+
+1. Standalone issue? → labels only.
+2. 2 related? → labels only; reassess at 3.
+3. 3+ with a one-paragraph rationale **beyond what labels say** AND a finite end state? → tracker.
+4. No finite end ("all P1 work", "all engine bugs")? → label query, not a tracker.
+
+### When NOT to file (anti-patterns)
+
+- **Singletons** — labels only.
+- **Label-queryable groups** — `priority:p1-* + area:engine` is a CLI query, not a tracker.
+- **Perpetual tier buckets** — NEVER invent `tier:1` / `tier:2` labels or "Tier N" parent issues. Tier is relative; trackers are durable; the mismatch creates name drift.
+- **Cross-tracker membership** — one parent per child is an API constraint. Pick the dominant theme (see Tiebreaker below).
+- **Invented label families** — NEVER invent `cluster:*`, `theme:*`, or other grouping labels. Structural label families are FIXED: `priority`, `area`, `mechanic`, `source`, `resolution`, `special`, `status`. Clustering is expressed through sub-issue parentage on a `collector`-labelled tracker, period.
+- **Deferral mechanism** — filing a sub-issue under a tracker is NOT a substitute for building missing infrastructure during the originating fix (see *No Default Deferral* above). Trackers organize work that is legitimately separate (architectural follow-ups discovered post-commit, RFC-class items, Π-round refactors), not in-scope plumbing punted to "later."
+
+### Tracker format
+
+```
+Title:  Cluster: <theme> (<scope>)
+Label:  collector
+Body uses fixed H2 headings (machine-extractable):
+
+  ## Rationale   — 1 paragraph; why grouped beyond what labels already say
+  ## Ordering    — 1 line per child if non-obvious
+  ## Children    — auto-rendered by GitHub when sub-issues are attached
+```
+
+### Lifecycle commands
+
+```bash
+# Create a tracker
+gh issue create --repo phase-rs/phase --label "collector" \
+  --title "Cluster: <theme> (<scope>)" \
+  --body "..."
+
+# Attach a child — API requires the REST id integer, NOT the issue number, NOT the node_id.
+# Use -F (typed field) — NOT -f (raw string). The -f form will fail with
+#   "Invalid property /sub_issue_id: \"<id>\" is not of type `integer`" (HTTP 422)
+CHILD_ID=$(gh api repos/phase-rs/phase/issues/<child_number> --jq .id)
+gh api -X POST repos/phase-rs/phase/issues/<parent_number>/sub_issues \
+  -F sub_issue_id=$CHILD_ID
+
+# Inspect a tracker + children
+gh issue view <parent_number> --repo phase-rs/phase --json subIssues,title,body
+```
+
+Reference: https://docs.github.com/en/rest/issues/sub-issues
+
+### Session integration
+
+**Session start**: list open trackers and work in this order:
+
+1. Trackers with any `priority:p0-softlock` child
+2. Then trackers older than 30 days (force-resolution pressure)
+3. Then trackers with the fewest remaining open children (closeout bias)
+
+After picking from open trackers, scan the unclustered `status:confirmed` backlog **once per session** for new thematic groupings of 3+ passing the decision rule. File retroactive trackers and attach matching issues. Do NOT re-scan on every tool call.
+
+**Session end**: review newly filed issues. Any 3+ with a shared theme passing the decision rule → file tracker + attach children. Singletons stay unattached.
+
+**Closure is MANUAL.** GitHub does NOT auto-close parents when sub-issues close. When the last active child closes, manually close the tracker with a brief retrospective comment summarizing the cluster outcome and any reusable primitives produced (e.g., "5 shipped, 1 RFC-deferred (#367). Reusable primitives: LKI snapshot for dies-trigger inspection, ChangeZone.enter_with_counters."). That comment IS the retrospective archive future agents will read.
+
+**Dissolution**: keep a tracker open if any active child remains AND its rationale still applies. Do NOT close a tracker just because count is 1 — a tracker with a single open RFC child remains structurally useful as the cluster → follow-up link.
+
+**Exhausted-cluster rule**: when all children are closed but more theme work is expected (e.g., Tier 1 keyword cluster closes and Tier 2 keywords are next), close the existing tracker with its retrospective comment and file a NEW tracker for the next batch. NEVER repurpose a closed-theme tracker as a perpetual queue — that violates the finite-end principle and merges history with active work.
+
+**Split rule**: when a tracker grows past ~10 children with diverging themes, file two new trackers, reparent the children, and close the original with `resolution:split` and a comment pointing at the two replacements.
+
+**Merge rule**: NEVER retroactively merge two open trackers. Each closed tracker is its retrospective archive. For genuinely converging themes, file a new forward-only tracker; cross-reference both originals in its Rationale.
+
+**Cross-cluster tiebreaker** (when a child fits two themes): pick the tracker whose Rationale more specifically predicts the fix shape. A "build-time synthesis" tracker beats a generic "Π-round refactor" tracker for a keyword bug because the synthesis tracker scopes the fix. If genuinely co-equal, prefer the tracker closing sooner so the child doesn't outlive its parent.
+
+### Worked example
+
+**Cluster: Keyword Synthesis (Tier 1, May 2026)** — CLOSED. Children: #346, #351, #352, #353, #354, #355 (all closed; #355 spawned RFC #367).
+
+```
+## Rationale
+Build-time synthesis pattern for highest-ROI keywords. Each child shares the
+synthesis.rs entry point and primitives (LKI snapshot, ReplacementEvent::Moved
++ PutCounter, ChangeZone.enter_with_counters, ControllerRef::DefendingPlayer).
+Cluster end: all keywords shipped or deferred to RFC.
+
+## Ordering
+Fabricate (baseline synthesis pattern) → dies-trigger family (Modular,
+Undying/Persist, Bloodthirst) → per-attacker family (Annihilator) →
+cross-cutting pair-binding (Soulbond, deferred to RFC #367).
+```
+
+**Cluster: Architectural Follow-ups from Keyword Synthesis** — OPEN. Open children: #357, #359, #364, #367. Closed: #358.
+
+```
+## Rationale
+Cross-cutting follow-ups discovered during the Tier 1 keyword cluster: LKI
+symmetry, CounterType Π-lift, end-to-end ETB-pipeline testing harness,
+KeywordTriggerInstaller registry. Each is too cross-cutting to land inline
+with the originating fix, but smaller than the RFC threshold. Cluster end:
+all follow-ups landed or escalated.
+
+## Ordering
+#359 registry first (front-load — unblocks future keyword work), then #357
+E2E test harness, then #364 Π-lift (waits for #359), then #367 RFC pickup.
+```
+
+### Cross-references
+
+- `feedback_no_default_deferral.md` — trackers do not park in-scope work; build the primitive inline as part of the fix.
+- GitHub sub-issues REST API: https://docs.github.com/en/rest/issues/sub-issues
+
 ## Resync Workflow (periodic maintenance)
 
 Run this after parser/engine changes to update triage state:
@@ -239,6 +364,8 @@ Spawn a Sonnet agent to re-read `triage/llm-triage-items.jsonl` and cross-refere
 Compare the new cross-reference against open GitHub issues. Parser coverage is only a candidate signal:
 - If the bug was a parser gap → inspect the reported ability and verify the typed AST/IR represents the reported semantics. Close only after that targeted semantic check passes.
 - If the bug was a runtime issue → do not mark fixed from parser coverage. Inspect the relevant runtime code and preferably add/run a reproduction test. Transition only after targeted evidence exists.
+
+Also at this step: audit open `collector` trackers. When a resync pass closes children of an open tracker, evaluate the tracker against the dissolution / exhausted-cluster rules in *Cluster Tracking with Sub-Issues* and manually close or split as appropriate. Tracker state otherwise drifts: children close, parents stay open with no remaining work.
 
 ### Step 4: Fetch new Discord messages
 ```bash
@@ -326,4 +453,4 @@ Before calling any bug fixed, run the mandatory post-fix review gate above. Regr
 | mechanic | triggered-abilities, mana, combat, tokens, costs, zone-change, continuous-effects, keyword, replacement-effects, counters, layers, attachments, modal, search, card-data-regen, ai-policy, targeting | Subsystem |
 | source | discord, github, playtesting | Provenance |
 | resolution | split, merged, upstream, cant-reproduce, by-design | Closure reason |
-| special | collector | Omnibus issue marker |
+| special | collector | Sub-issue tracker for a thematic cluster of 3+ related issues. Open trackers represent active workstreams; closed trackers are retrospective archive. See *Cluster Tracking with Sub-Issues* for the decision rule and lifecycle. |

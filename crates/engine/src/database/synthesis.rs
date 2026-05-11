@@ -1323,6 +1323,124 @@ pub fn synthesize_offspring(face: &mut CardFace) {
     face.triggers.push(trigger);
 }
 
+/// CR 702.123a: Fabricate N — "When this permanent enters, you may put N
+/// +1/+1 counters on it. If you don't, create N 1/1 colorless Servo artifact
+/// creature tokens."
+///
+/// CR 702.123b: Each instance of Fabricate triggers separately. A card with
+/// two `Keyword::Fabricate(N)` entries synthesizes two distinct ETB triggers.
+///
+/// Modeled as an ETB trigger whose execute body is `Effect::ChooseOneOf` with
+/// two branches:
+///   - Branch A: `PutCounter { P1P1, count: N, target: SelfRef }`
+///   - Branch B: `Token { Servo 1/1 colorless artifact creature, count: N }`
+///
+/// The CR phrasing ("you may put… if you don't, create…") is structurally
+/// equivalent to a controller-chosen branch: the controller decides which of
+/// the two outcomes resolves. `ChooseOneOf` is the existing primitive for
+/// "you may A or B" patterns and is the correct building block here — adding
+/// a bespoke "may/else" variant would duplicate it without categorical gain.
+pub fn synthesize_fabricate(face: &mut CardFace) {
+    let fabricate_values: Vec<u32> = face
+        .keywords
+        .iter()
+        .filter_map(|kw| match kw {
+            Keyword::Fabricate(n) => Some(*n),
+            _ => None,
+        })
+        .collect();
+    if fabricate_values.is_empty() {
+        return;
+    }
+
+    // Idempotency: skip if an ETB ChooseOneOf{P1P1 | Servo} trigger already
+    // exists. Match by structural shape (mode + destination + valid_card +
+    // execute effect kind) so re-running the synthesizer on an already-built
+    // face is a no-op.
+    let already_has_trigger = face.triggers.iter().any(|t| {
+        matches!(t.mode, TriggerMode::ChangesZone)
+            && t.destination == Some(Zone::Battlefield)
+            && matches!(t.valid_card, Some(TargetFilter::SelfRef))
+            && matches!(
+                t.execute.as_deref().map(|a| &*a.effect),
+                Some(Effect::ChooseOneOf { branches, .. })
+                    if branches.iter().any(|b| matches!(
+                        &*b.effect,
+                        Effect::Token { name, .. } if name == "Servo"
+                    ))
+            )
+    });
+    if already_has_trigger {
+        return;
+    }
+
+    for n in fabricate_values {
+        let count_expr = QuantityExpr::Fixed { value: n as i32 };
+        let counter_word = if n == 1 { "counter" } else { "counters" };
+        let token_word = if n == 1 { "token" } else { "tokens" };
+
+        let counters_branch = AbilityDefinition::new(
+            AbilityKind::Spell,
+            Effect::PutCounter {
+                counter_type: "P1P1".to_string(),
+                count: count_expr.clone(),
+                target: TargetFilter::SelfRef,
+            },
+        )
+        .description(format!("Put {n} +1/+1 {counter_word} on it"));
+
+        // CR 111.1 + CR 111.4: Token is a 1/1 colorless Servo artifact
+        // creature token. `types` carries both core types ("Artifact",
+        // "Creature") and the creature subtype ("Servo") — mirrors the
+        // Treasure pattern (`["Artifact", "Treasure"]`) and Mobilize Warrior
+        // pattern (`["Creature", "Warrior"]`). Colorless is represented as
+        // an empty `colors` vec.
+        let servos_branch = AbilityDefinition::new(
+            AbilityKind::Spell,
+            Effect::Token {
+                name: "Servo".to_string(),
+                power: PtValue::Fixed(1),
+                toughness: PtValue::Fixed(1),
+                types: vec![
+                    "Artifact".to_string(),
+                    "Creature".to_string(),
+                    "Servo".to_string(),
+                ],
+                colors: vec![],
+                keywords: vec![],
+                tapped: false,
+                count: count_expr,
+                owner: TargetFilter::Controller,
+                attach_to: None,
+                enters_attacking: false,
+                supertypes: vec![],
+                static_abilities: vec![],
+                enter_with_counters: vec![],
+            },
+        )
+        .description(format!(
+            "Create {n} 1/1 colorless Servo artifact creature {token_word}"
+        ));
+
+        let choose = AbilityDefinition::new(
+            AbilityKind::Spell,
+            Effect::ChooseOneOf {
+                chooser: crate::types::ability::PlayerFilter::Controller,
+                branches: vec![counters_branch, servos_branch],
+            },
+        );
+
+        let trigger = TriggerDefinition::new(TriggerMode::ChangesZone)
+            .destination(Zone::Battlefield)
+            .valid_card(TargetFilter::SelfRef)
+            .execute(choose)
+            .description(format!(
+                "CR 702.123a: Fabricate {n} — when this permanent enters, put {n} +1/+1 {counter_word} on it or create {n} 1/1 colorless Servo artifact creature {token_word}."
+            ));
+        face.triggers.push(trigger);
+    }
+}
+
 /// CR 702.62a: Suspend N—{cost} synthesizes three abilities for every face
 /// carrying `Keyword::Suspend { count, cost }`:
 ///
@@ -1629,6 +1747,10 @@ pub fn synthesize_all(face: &mut CardFace) {
     synthesize_echo(face);
     // CR 702.175a: Offspring — optional additional cost + ETB 1/1 copy trigger.
     synthesize_offspring(face);
+    // CR 702.123a: Fabricate N — ETB trigger with controller-chosen branch
+    // between N +1/+1 counters or N 1/1 colorless Servo artifact creature
+    // tokens. Modeled via `Effect::ChooseOneOf`.
+    synthesize_fabricate(face);
     // CR 702.62a: Suspend — hand-activated alt-cost + upkeep counter-removal +
     // last-counter free-cast. Runs after Evoke to keep alt-cost synthesizers
     // grouped; idempotent so order against Cycling/Madness is irrelevant.
@@ -2600,6 +2722,404 @@ mod evoke_synthesis_tests {
         face.keywords.push(Keyword::Flying);
         synthesize_evoke(&mut face);
         assert!(face.triggers.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod fabricate_synthesis_tests {
+    use super::*;
+
+    fn fabricate_face(n: u32) -> CardFace {
+        let mut face = CardFace::default();
+        face.keywords.push(Keyword::Fabricate(n));
+        face
+    }
+
+    /// CR 702.123a: Fabricate synthesizes an ETB ChooseOneOf trigger whose
+    /// two branches are the P1P1 counter placement and the Servo token
+    /// creation, both parameterized by N.
+    #[test]
+    fn synthesize_fabricate_adds_etb_choose_branches() {
+        let mut face = fabricate_face(2);
+        synthesize_fabricate(&mut face);
+
+        let trigger = face
+            .triggers
+            .iter()
+            .find(|t| {
+                matches!(t.mode, TriggerMode::ChangesZone)
+                    && t.destination == Some(Zone::Battlefield)
+                    && matches!(t.valid_card, Some(TargetFilter::SelfRef))
+            })
+            .expect("fabricate should add an ETB trigger");
+
+        let Some(Effect::ChooseOneOf { branches, .. }) =
+            trigger.execute.as_deref().map(|a| &*a.effect)
+        else {
+            panic!("fabricate execute should be ChooseOneOf");
+        };
+        assert_eq!(branches.len(), 2, "fabricate offers two branches");
+
+        let counter_branch = branches
+            .iter()
+            .find(|b| matches!(&*b.effect, Effect::PutCounter { .. }))
+            .expect("one branch must place +1/+1 counters");
+        let Effect::PutCounter {
+            counter_type,
+            count,
+            target,
+        } = &*counter_branch.effect
+        else {
+            unreachable!();
+        };
+        assert_eq!(counter_type, "P1P1");
+        assert!(matches!(count, QuantityExpr::Fixed { value: 2 }));
+        assert!(matches!(target, TargetFilter::SelfRef));
+
+        let token_branch = branches
+            .iter()
+            .find(|b| matches!(&*b.effect, Effect::Token { .. }))
+            .expect("one branch must create Servo tokens");
+        let Effect::Token {
+            name,
+            power,
+            toughness,
+            types,
+            colors,
+            count,
+            ..
+        } = &*token_branch.effect
+        else {
+            unreachable!();
+        };
+        assert_eq!(name, "Servo");
+        assert!(matches!(power, PtValue::Fixed(1)));
+        assert!(matches!(toughness, PtValue::Fixed(1)));
+        assert_eq!(
+            types,
+            &vec![
+                "Artifact".to_string(),
+                "Creature".to_string(),
+                "Servo".to_string()
+            ]
+        );
+        assert!(colors.is_empty(), "Servo tokens are colorless");
+        assert!(matches!(count, QuantityExpr::Fixed { value: 2 }));
+    }
+
+    /// Repeated synthesis must not duplicate the trigger (idempotency).
+    #[test]
+    fn synthesize_fabricate_is_idempotent() {
+        let mut face = fabricate_face(1);
+        synthesize_fabricate(&mut face);
+        synthesize_fabricate(&mut face);
+        let count = face
+            .triggers
+            .iter()
+            .filter(|t| {
+                matches!(t.mode, TriggerMode::ChangesZone)
+                    && t.destination == Some(Zone::Battlefield)
+                    && matches!(
+                        t.execute.as_deref().map(|a| &*a.effect),
+                        Some(Effect::ChooseOneOf { .. })
+                    )
+            })
+            .count();
+        assert_eq!(count, 1, "fabricate trigger should be deduped");
+    }
+
+    /// Cards without Fabricate are unaffected.
+    #[test]
+    fn synthesize_fabricate_is_noop_without_keyword() {
+        let mut face = CardFace::default();
+        face.keywords.push(Keyword::Flying);
+        synthesize_fabricate(&mut face);
+        assert!(face.triggers.is_empty());
+    }
+
+    /// Negative test: a creature ETB without Fabricate must not synthesize
+    /// a ChooseOneOf trigger. Guards against false positives that would
+    /// prompt on every non-Fabricate creature.
+    #[test]
+    fn synthesize_fabricate_does_not_affect_other_keywords() {
+        let mut face = CardFace::default();
+        face.keywords.push(Keyword::Trample);
+        face.keywords.push(Keyword::Vigilance);
+        synthesize_fabricate(&mut face);
+        assert!(face.triggers.is_empty());
+    }
+
+    /// CR 702.123b: Each instance of Fabricate triggers separately, so a
+    /// card with two `Keyword::Fabricate` entries synthesizes two triggers.
+    /// No printed card has this today; the test guards the rule shape.
+    #[test]
+    fn synthesize_fabricate_emits_one_trigger_per_instance() {
+        let mut face = CardFace::default();
+        face.keywords.push(Keyword::Fabricate(1));
+        face.keywords.push(Keyword::Fabricate(3));
+        synthesize_fabricate(&mut face);
+        let triggers: Vec<_> = face
+            .triggers
+            .iter()
+            .filter(|t| {
+                matches!(
+                    t.execute.as_deref().map(|a| &*a.effect),
+                    Some(Effect::ChooseOneOf { .. })
+                )
+            })
+            .collect();
+        assert_eq!(triggers.len(), 2);
+        // Idempotency dedupe is by structural shape, but the first call
+        // installs both N=1 and N=3 in one pass — the second call sees the
+        // shape match and skips entirely. Verify both Ns are present from
+        // the first pass.
+        let ns: Vec<i32> = triggers
+            .iter()
+            .filter_map(|t| match t.execute.as_deref().map(|a| &*a.effect) {
+                Some(Effect::ChooseOneOf { branches, .. }) => {
+                    branches.iter().find_map(|b| match &*b.effect {
+                        Effect::PutCounter {
+                            count: QuantityExpr::Fixed { value },
+                            ..
+                        } => Some(*value),
+                        _ => None,
+                    })
+                }
+                _ => None,
+            })
+            .collect();
+        assert!(ns.contains(&1) && ns.contains(&3));
+    }
+}
+
+#[cfg(test)]
+mod fabricate_runtime_tests {
+    //! CR 702.123a runtime integration: the synthesized ETB ChooseOneOf
+    //! trigger fires on enters-the-battlefield, lands on the stack as a
+    //! triggered ability, resolves into `WaitingFor::ChooseOneOfBranch`,
+    //! and each branch produces the rule-correct outcome (P1P1 counters
+    //! or Servo tokens).
+
+    use super::*;
+    use crate::game::printed_cards::apply_card_face_to_object;
+    use crate::game::triggers::process_triggers;
+    use crate::game::zones::create_object;
+    use crate::types::actions::GameAction;
+    use crate::types::card_type::CoreType;
+    use crate::types::events::GameEvent;
+    use crate::types::game_state::{GameState, StackEntryKind, WaitingFor, ZoneChangeRecord};
+    use crate::types::identifiers::{CardId, ObjectId};
+    use crate::types::player::PlayerId;
+
+    /// Build a `CardFace` that mimics a Cultivator-of-Blades-shaped card
+    /// (creature with `Fabricate N`) and apply the full synthesis pipeline.
+    fn fabricate_creature_face(name: &str, n: u32) -> CardFace {
+        let mut face = CardFace {
+            name: name.to_string(),
+            power: Some(PtValue::Fixed(2)),
+            toughness: Some(PtValue::Fixed(2)),
+            keywords: vec![Keyword::Fabricate(n)],
+            ..CardFace::default()
+        };
+        face.card_type.core_types.push(CoreType::Creature);
+        synthesize_all(&mut face);
+        face
+    }
+
+    /// CR 603.6a + CR 111.1: Synthesize an enters-the-battlefield event so
+    /// `process_triggers` recognizes the ETB and the synthesized Fabricate
+    /// trigger fires.
+    fn etb_event(object_id: ObjectId, name: &str) -> GameEvent {
+        GameEvent::ZoneChanged {
+            object_id,
+            from: Some(Zone::Stack),
+            to: Zone::Battlefield,
+            record: Box::new(ZoneChangeRecord {
+                name: name.to_string(),
+                core_types: vec![CoreType::Creature],
+                subtypes: vec![],
+                ..ZoneChangeRecord::test_minimal(object_id, Some(Zone::Stack), Zone::Battlefield)
+            }),
+        }
+    }
+
+    /// Place a fabricate-bearing creature on the battlefield, fire the ETB
+    /// event, and resolve the stack down to the choose-one-of branch prompt.
+    fn etb_and_resolve_to_choice(face: &CardFace, controller: PlayerId) -> (GameState, ObjectId) {
+        let mut state = GameState::new_two_player(42);
+        state.turn_number = 2;
+        state.phase = crate::types::phase::Phase::PreCombatMain;
+        state.active_player = controller;
+        state.priority_player = controller;
+        state.waiting_for = WaitingFor::Priority { player: controller };
+
+        let next_card = CardId(state.next_object_id);
+        let obj_id = create_object(
+            &mut state,
+            next_card,
+            controller,
+            face.name.clone(),
+            Zone::Battlefield,
+        );
+        {
+            let obj = state.objects.get_mut(&obj_id).unwrap();
+            apply_card_face_to_object(obj, face);
+        }
+
+        // Fabricate's ETB trigger goes onto the stack via process_triggers.
+        process_triggers(&mut state, &[etb_event(obj_id, &face.name)]);
+
+        // Stack should have the synthesized triggered ability.
+        assert!(
+            state
+                .stack
+                .iter()
+                .any(|entry| matches!(&entry.kind, StackEntryKind::TriggeredAbility { .. })),
+            "Fabricate ETB trigger must land on the stack"
+        );
+
+        // Drain the stack: resolve top should consume the trigger and
+        // hand off to ChooseOneOfBranch.
+        let mut events = Vec::new();
+        crate::game::stack::resolve_top(&mut state, &mut events);
+        (state, obj_id)
+    }
+
+    /// CR 702.123a branch A: choosing the +1/+1 counter branch places N
+    /// P1P1 counters on the entering permanent.
+    #[test]
+    fn fabricate_counter_branch_places_p1p1_counters_on_self() {
+        let face = fabricate_creature_face("Cultivator of Blades", 2);
+        let (mut state, obj_id) = etb_and_resolve_to_choice(&face, PlayerId(0));
+
+        // Confirm the choose-one-of prompt is waiting on the controller.
+        assert!(matches!(
+            state.waiting_for,
+            WaitingFor::ChooseOneOfBranch {
+                player: PlayerId(0),
+                ..
+            }
+        ));
+
+        // Branch 0 = P1P1 counters per synthesizer construction order.
+        crate::game::engine::apply_as_current(&mut state, GameAction::ChooseBranch { index: 0 })
+            .unwrap();
+
+        let obj = state.objects.get(&obj_id).unwrap();
+        let p1p1_count: u32 = obj
+            .counters
+            .iter()
+            .filter(|(ct, _)| **ct == crate::types::counter::CounterType::Plus1Plus1)
+            .map(|(_, n)| *n)
+            .sum();
+        assert_eq!(
+            p1p1_count, 2,
+            "Fabricate 2 counter branch must place 2 +1/+1 counters"
+        );
+    }
+
+    /// CR 702.123a branch B: choosing the Servo branch creates N 1/1
+    /// colorless Servo artifact creature tokens under the controller.
+    #[test]
+    fn fabricate_servo_branch_creates_artifact_creature_tokens() {
+        let face = fabricate_creature_face("Cultivator of Blades", 2);
+        let (mut state, _obj_id) = etb_and_resolve_to_choice(&face, PlayerId(0));
+
+        // Branch 1 = Servo tokens.
+        crate::game::engine::apply_as_current(&mut state, GameAction::ChooseBranch { index: 1 })
+            .unwrap();
+
+        let servos: Vec<&crate::game::game_object::GameObject> = state
+            .objects
+            .values()
+            .filter(|obj| obj.name == "Servo" && obj.is_token)
+            .collect();
+        assert_eq!(
+            servos.len(),
+            2,
+            "Fabricate 2 token branch must create 2 Servos"
+        );
+        for token in &servos {
+            assert!(
+                token.card_types.core_types.contains(&CoreType::Artifact),
+                "Servo must be an artifact"
+            );
+            assert!(
+                token.card_types.core_types.contains(&CoreType::Creature),
+                "Servo must be a creature"
+            );
+            assert!(
+                token.card_types.subtypes.iter().any(|s| s == "Servo"),
+                "Servo must carry Servo subtype"
+            );
+            assert!(token.color.is_empty(), "Servo must be colorless");
+            assert_eq!(token.controller, PlayerId(0));
+        }
+    }
+
+    /// CR 702.123a with Fabricate 1 — Ambitious Aetherborn shape — exercises
+    /// the same flow with N=1 to guard against off-by-one collapse of the
+    /// branch construction.
+    #[test]
+    fn fabricate_one_resolves_with_singleton_payload() {
+        let face = fabricate_creature_face("Ambitious Aetherborn", 1);
+        let (mut state, obj_id) = etb_and_resolve_to_choice(&face, PlayerId(0));
+
+        crate::game::engine::apply_as_current(&mut state, GameAction::ChooseBranch { index: 0 })
+            .unwrap();
+
+        let obj = state.objects.get(&obj_id).unwrap();
+        let p1p1_count: u32 = obj
+            .counters
+            .iter()
+            .filter(|(ct, _)| **ct == crate::types::counter::CounterType::Plus1Plus1)
+            .map(|(_, n)| *n)
+            .sum();
+        assert_eq!(p1p1_count, 1);
+    }
+
+    /// Negative: a non-Fabricate creature ETB must not synthesize a
+    /// ChooseOneOf prompt. Guards against the synthesizer over-firing.
+    #[test]
+    fn etb_without_fabricate_does_not_emit_choose_one_of() {
+        let mut face = CardFace {
+            name: "Plain Bear".to_string(),
+            power: Some(PtValue::Fixed(2)),
+            toughness: Some(PtValue::Fixed(2)),
+            ..CardFace::default()
+        };
+        face.card_type.core_types.push(CoreType::Creature);
+        synthesize_all(&mut face);
+
+        let mut state = GameState::new_two_player(42);
+        state.turn_number = 2;
+        state.phase = crate::types::phase::Phase::PreCombatMain;
+        state.active_player = PlayerId(0);
+        state.priority_player = PlayerId(0);
+        state.waiting_for = WaitingFor::Priority {
+            player: PlayerId(0),
+        };
+
+        let next_card = CardId(state.next_object_id);
+        let obj_id = create_object(
+            &mut state,
+            next_card,
+            PlayerId(0),
+            face.name.clone(),
+            Zone::Battlefield,
+        );
+        {
+            let obj = state.objects.get_mut(&obj_id).unwrap();
+            apply_card_face_to_object(obj, &face);
+        }
+        process_triggers(&mut state, &[etb_event(obj_id, &face.name)]);
+        assert!(
+            !state
+                .stack
+                .iter()
+                .any(|entry| matches!(&entry.kind, StackEntryKind::TriggeredAbility { .. })),
+            "non-Fabricate ETB must not push a triggered ability"
+        );
     }
 }
 

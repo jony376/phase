@@ -1532,11 +1532,16 @@ pub fn synthesize_soulbond(face: &mut CardFace) {
     KeywordTriggerInstaller::install_matching(face, |kw| matches!(kw, Keyword::Soulbond));
 }
 
-fn unpaired_creature_you_control() -> TargetFilter {
+fn unpaired_creature_you_control_on_battlefield() -> TargetFilter {
     TargetFilter::Typed(
         TypedFilter::creature()
             .controller(ControllerRef::You)
-            .properties(vec![FilterProp::Unpaired]),
+            .properties(vec![
+                FilterProp::InZone {
+                    zone: Zone::Battlefield,
+                },
+                FilterProp::Unpaired,
+            ]),
     )
 }
 
@@ -1548,15 +1553,29 @@ fn another_unpaired_creature_you_control() -> TargetFilter {
     )
 }
 
+fn another_unpaired_creature_you_control_on_battlefield() -> TargetFilter {
+    TargetFilter::Typed(
+        TypedFilter::creature()
+            .controller(ControllerRef::You)
+            .properties(vec![
+                FilterProp::Another,
+                FilterProp::InZone {
+                    zone: Zone::Battlefield,
+                },
+                FilterProp::Unpaired,
+            ]),
+    )
+}
+
 fn build_soulbond_triggers() -> Vec<TriggerDefinition> {
     let source_unpaired = TriggerCondition::SourceMatchesFilter {
-        filter: unpaired_creature_you_control(),
+        filter: unpaired_creature_you_control_on_battlefield(),
     };
     let source_enters_condition = TriggerCondition::And {
         conditions: vec![
             source_unpaired.clone(),
             TriggerCondition::ControlsType {
-                filter: another_unpaired_creature_you_control(),
+                filter: another_unpaired_creature_you_control_on_battlefield(),
             },
         ],
     };
@@ -1566,14 +1585,14 @@ fn build_soulbond_triggers() -> Vec<TriggerDefinition> {
             TriggerCondition::ZoneChangeObjectMatchesFilter {
                 origin: None,
                 destination: Zone::Battlefield,
-                filter: another_unpaired_creature_you_control(),
+                filter: another_unpaired_creature_you_control_on_battlefield(),
             },
         ],
     };
     let pair_target = AbilityDefinition::new(
         AbilityKind::Spell,
         Effect::PairWith {
-            target: another_unpaired_creature_you_control(),
+            target: another_unpaired_creature_you_control_on_battlefield(),
         },
     )
     .target_choice_timing(TargetChoiceTiming::Resolution)

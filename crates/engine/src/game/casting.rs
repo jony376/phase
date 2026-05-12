@@ -6375,9 +6375,11 @@ mod tests {
     }
 
     fn card_database_from_export() -> CardDatabase {
+        let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
         let paths = [
-            std::path::Path::new("client/public/card-data.json"),
-            std::path::Path::new("../../client/public/card-data.json"),
+            manifest_dir.join("../../client/public/card-data.json"),
+            std::path::PathBuf::from("client/public/card-data.json"),
+            std::path::PathBuf::from("../../client/public/card-data.json"),
         ];
         let path = paths
             .iter()

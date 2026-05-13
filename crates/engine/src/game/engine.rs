@@ -7354,6 +7354,232 @@ mod tests {
         assert!(state.players[0].graveyard.contains(&gamble));
     }
 
+    const SQUADRON_HAWK_ORACLE: &str = "Flying\nWhen this creature enters, you may search your library for up to three cards named Squadron Hawk, reveal them, put them into your hand, then shuffle.";
+
+    fn add_squadron_hawk_to_library(state: &mut GameState, card_id: u64) -> ObjectId {
+        let hawk = create_object(
+            state,
+            CardId(card_id),
+            PlayerId(0),
+            "Squadron Hawk".to_string(),
+            Zone::Library,
+        );
+        {
+            let obj = state.objects.get_mut(&hawk).unwrap();
+            obj.card_types.core_types.push(CoreType::Creature);
+            obj.base_card_types = obj.card_types.clone();
+            obj.power = Some(1);
+            obj.toughness = Some(1);
+            obj.base_power = Some(1);
+            obj.base_toughness = Some(1);
+        }
+        hawk
+    }
+
+    fn resolve_squadron_hawk_etb_to_search_choice() -> (GameState, [ObjectId; 3], ObjectId) {
+        let mut state = setup_game_at_main_phase();
+        let entering_hawk = create_object(
+            &mut state,
+            CardId(10),
+            PlayerId(0),
+            "Squadron Hawk".to_string(),
+            Zone::Hand,
+        );
+        {
+            let obj = state.objects.get_mut(&entering_hawk).unwrap();
+            obj.card_types.core_types.push(CoreType::Creature);
+            obj.base_card_types = obj.card_types.clone();
+            obj.power = Some(1);
+            obj.toughness = Some(1);
+            obj.base_power = Some(1);
+            obj.base_toughness = Some(1);
+        }
+        apply_oracle_to_object(
+            &mut state,
+            entering_hawk,
+            "Squadron Hawk",
+            SQUADRON_HAWK_ORACLE,
+        );
+
+        let hawks = [
+            add_squadron_hawk_to_library(&mut state, 11),
+            add_squadron_hawk_to_library(&mut state, 12),
+            add_squadron_hawk_to_library(&mut state, 13),
+        ];
+        let nonmatch = create_object(
+            &mut state,
+            CardId(14),
+            PlayerId(0),
+            "Storm Crow".to_string(),
+            Zone::Library,
+        );
+
+        let mut events = Vec::new();
+        zones::move_to_zone(&mut state, entering_hawk, Zone::Battlefield, &mut events);
+        crate::game::triggers::process_triggers(&mut state, &events);
+
+        assert_eq!(state.stack.len(), 1, "Squadron Hawk ETB trigger must stack");
+        apply_as_current(&mut state, GameAction::PassPriority).unwrap();
+        apply_as_current(&mut state, GameAction::PassPriority).unwrap();
+        assert!(
+            matches!(state.waiting_for, WaitingFor::OptionalEffectChoice { .. }),
+            "Squadron Hawk's 'you may' trigger must prompt before searching, got {:?}",
+            state.waiting_for
+        );
+
+        apply_as_current(
+            &mut state,
+            GameAction::DecideOptionalEffect { accept: true },
+        )
+        .unwrap();
+
+        match &state.waiting_for {
+            WaitingFor::SearchChoice {
+                player,
+                cards,
+                count,
+                reveal,
+                up_to,
+                ..
+            } => {
+                assert_eq!(*player, PlayerId(0));
+                assert_eq!(*count, 3);
+                assert!(*reveal);
+                assert!(*up_to);
+                assert_eq!(cards.len(), 3);
+                for hawk in hawks {
+                    assert!(cards.contains(&hawk), "SearchChoice must offer {hawk:?}");
+                }
+                assert!(
+                    !cards.contains(&nonmatch),
+                    "SearchChoice must not offer non-Squadron Hawk cards"
+                );
+            }
+            other => {
+                panic!("Expected SearchChoice after accepting Squadron Hawk ETB, got {other:?}")
+            }
+        }
+
+        (state, hawks, nonmatch)
+    }
+
+    #[test]
+    fn squadron_hawk_may_trigger_can_be_declined_before_search() {
+        let mut state = setup_game_at_main_phase();
+        let entering_hawk = create_object(
+            &mut state,
+            CardId(10),
+            PlayerId(0),
+            "Squadron Hawk".to_string(),
+            Zone::Hand,
+        );
+        {
+            let obj = state.objects.get_mut(&entering_hawk).unwrap();
+            obj.card_types.core_types.push(CoreType::Creature);
+            obj.base_card_types = obj.card_types.clone();
+        }
+        apply_oracle_to_object(
+            &mut state,
+            entering_hawk,
+            "Squadron Hawk",
+            SQUADRON_HAWK_ORACLE,
+        );
+        let library_hawk = add_squadron_hawk_to_library(&mut state, 11);
+
+        let mut events = Vec::new();
+        zones::move_to_zone(&mut state, entering_hawk, Zone::Battlefield, &mut events);
+        crate::game::triggers::process_triggers(&mut state, &events);
+        apply_as_current(&mut state, GameAction::PassPriority).unwrap();
+        apply_as_current(&mut state, GameAction::PassPriority).unwrap();
+        assert!(matches!(
+            state.waiting_for,
+            WaitingFor::OptionalEffectChoice { .. }
+        ));
+
+        let result = apply_as_current(
+            &mut state,
+            GameAction::DecideOptionalEffect { accept: false },
+        )
+        .unwrap();
+
+        assert!(matches!(result.waiting_for, WaitingFor::Priority { .. }));
+        assert!(state.stack.is_empty());
+        assert_eq!(state.objects[&library_hawk].zone, Zone::Library);
+        assert!(state.players[0].library.contains(&library_hawk));
+        assert!(!state.players[0].hand.contains(&library_hawk));
+        assert!(!result.events.iter().any(|event| matches!(
+            event,
+            GameEvent::PlayerPerformedAction {
+                action: crate::types::events::PlayerActionKind::SearchedLibrary,
+                ..
+            } | GameEvent::CardsRevealed { .. }
+                | GameEvent::EffectResolved {
+                    kind: EffectKind::Shuffle,
+                    ..
+                }
+        )));
+    }
+
+    #[test]
+    fn squadron_hawk_search_can_choose_zero_cards() {
+        let (mut state, hawks, nonmatch) = resolve_squadron_hawk_etb_to_search_choice();
+
+        let result =
+            apply_as_current(&mut state, GameAction::SelectCards { cards: vec![] }).unwrap();
+
+        assert!(matches!(result.waiting_for, WaitingFor::Priority { .. }));
+        assert!(state.stack.is_empty());
+        for hawk in hawks {
+            assert_eq!(state.objects[&hawk].zone, Zone::Library);
+            assert!(state.players[0].library.contains(&hawk));
+            assert!(!state.players[0].hand.contains(&hawk));
+        }
+        assert_eq!(state.objects[&nonmatch].zone, Zone::Library);
+        assert!(result.events.iter().any(|event| matches!(
+            event,
+            GameEvent::EffectResolved {
+                kind: EffectKind::Shuffle,
+                ..
+            }
+        )));
+    }
+
+    #[test]
+    fn squadron_hawk_search_moves_only_selected_cards() {
+        for selected_count in [1, 2] {
+            let (mut state, hawks, _) = resolve_squadron_hawk_etb_to_search_choice();
+            let selected = hawks[..selected_count].to_vec();
+
+            let result = apply_as_current(
+                &mut state,
+                GameAction::SelectCards {
+                    cards: selected.clone(),
+                },
+            )
+            .unwrap();
+
+            assert!(matches!(result.waiting_for, WaitingFor::Priority { .. }));
+            assert!(state.stack.is_empty());
+            for hawk in selected {
+                assert_eq!(state.objects[&hawk].zone, Zone::Hand);
+                assert!(state.players[0].hand.contains(&hawk));
+                assert!(!state.players[0].library.contains(&hawk));
+            }
+            for hawk in &hawks[selected_count..] {
+                assert_eq!(state.objects[hawk].zone, Zone::Library);
+                assert!(state.players[0].library.contains(hawk));
+                assert!(!state.players[0].hand.contains(hawk));
+            }
+            assert!(result.events.iter().any(|event| matches!(
+                event,
+                GameEvent::EffectResolved {
+                    kind: EffectKind::Shuffle,
+                    ..
+                }
+            )));
+        }
+    }
+
     #[test]
     fn fizzle_target_removed_before_resolution() {
         use crate::types::mana::{ManaCost, ManaCostShard, ManaType, ManaUnit};

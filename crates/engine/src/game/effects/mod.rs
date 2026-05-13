@@ -469,10 +469,12 @@ pub(super) fn resolve_optional_effect_decision(
             resolve_ability_chain(state, &ability, events, depth)?;
         }
         AutoMayChoice::Decline => {
-            let decline_branch = ability
-                .else_ability
-                .as_ref()
-                .or(ability.sub_ability.as_ref());
+            let decline_branch = ability.else_ability.as_ref().or_else(|| {
+                ability
+                    .sub_ability
+                    .as_ref()
+                    .filter(|sub| should_resolve_subability_on_optional_decline(sub))
+            });
             if let Some(branch) = decline_branch {
                 let mut resolved = branch.as_ref().clone();
                 resolved.context = ability.context.clone();
@@ -481,6 +483,19 @@ pub(super) fn resolve_optional_effect_decision(
         }
     }
     Ok(())
+}
+
+fn should_resolve_subability_on_optional_decline(ability: &ResolvedAbility) -> bool {
+    match ability.condition {
+        Some(AbilityCondition::Not { ref condition }) => matches!(
+            condition.as_ref(),
+            AbilityCondition::IfYouDo | AbilityCondition::IfAPlayerDoes
+        ),
+        Some(AbilityCondition::IfYouDo | AbilityCondition::IfAPlayerDoes) => {
+            ability.else_ability.is_some()
+        }
+        _ => false,
+    }
 }
 
 fn is_player_scope_local_continuation(parent: &Effect, child: &Effect) -> bool {

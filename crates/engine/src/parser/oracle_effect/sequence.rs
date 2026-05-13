@@ -223,6 +223,18 @@ fn append_definition_to_sub_chain(ability: &mut AbilityDefinition, next: Ability
     let mut cursor = ability;
     loop {
         if cursor.sub_ability.is_none() {
+            if cursor.optional
+                && matches!(*cursor.effect, Effect::CastFromZone { .. })
+                && matches!(
+                    *next.effect,
+                    Effect::PutAtLibraryPosition {
+                        target: TargetFilter::ExiledBySource,
+                        ..
+                    }
+                )
+            {
+                cursor.else_ability = Some(Box::new(next.clone()));
+            }
             cursor.sub_ability = Some(Box::new(next));
             break;
         }

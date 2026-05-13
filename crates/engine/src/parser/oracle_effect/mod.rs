@@ -2556,8 +2556,9 @@ fn parse_effect_clause_inner(text: &str, ctx: &mut ParseContext) -> ParsedEffect
         return clause;
     }
 
-    // CR 702.84a: "exile cards from the top of your library until you exile a [filter] card"
-    if let Some(clause) = try_parse_exile_from_top_until(tp) {
+    // CR 701.13a + CR 608.2c: "exile cards from the top of your library until
+    // you exile a [filter] card"
+    if let Some(clause) = try_parse_exile_from_top_until(tp, TargetFilter::Controller) {
         return clause;
     }
 
@@ -2640,7 +2641,7 @@ fn parse_effect_clause_inner(text: &str, ctx: &mut ParseContext) -> ParsedEffect
         }
     }
 
-    // CR 401.4: "[target]'s owner puts it on their choice of the top or bottom of their library"
+    // "[target]'s owner puts it on their choice of the top or bottom of their library"
     if let Some(clause) = try_parse_put_on_top_or_bottom(tp, ctx) {
         return clause;
     }
@@ -2650,7 +2651,7 @@ fn parse_effect_clause_inner(text: &str, ctx: &mut ParseContext) -> ParsedEffect
         return clause;
     }
 
-    // CR 401.4 + CR 400.3: "the owner of target [filter] puts it into their library second from
+    // CR 400.3: "the owner of target [filter] puts it into their library second from
     // the top or on the bottom"
     if let Some(clause) = try_parse_owner_of_target_put_second(tp, ctx) {
         return clause;
@@ -3328,8 +3329,7 @@ fn try_parse_equal_to_quantity_effect(tp: TextPair) -> Option<ParsedEffectClause
     }
 }
 
-/// CR 702.84a: Parse "exile cards from the top of your library until you exile a [filter] card".
-/// CR 401.4: Parse "owner puts it on their choice of the top or bottom of their library".
+/// Parse "owner puts it on their choice of the top or bottom of their library".
 ///
 /// Two Oracle patterns:
 /// - "Target creature's owner puts it on their choice of the top or bottom of their library"
@@ -3426,7 +3426,7 @@ fn try_parse_owner_of_target_shuffle(
     }))
 }
 
-/// CR 401.4 + CR 400.3: Parse "the owner of target [filter] puts it into their library
+/// CR 400.3: Parse "the owner of target [filter] puts it into their library
 /// second from the top or on the bottom".
 ///
 /// Handles:
@@ -3496,7 +3496,10 @@ fn extract_owner_of_target(tp: TextPair, ctx: &mut ParseContext) -> Option<Targe
     None
 }
 
-fn try_parse_exile_from_top_until(tp: TextPair) -> Option<ParsedEffectClause> {
+fn try_parse_exile_from_top_until(
+    tp: TextPair,
+    player: TargetFilter,
+) -> Option<ParsedEffectClause> {
     // CR 701.13a + CR 701.57a + CR 702.85a + CR 202.3 + CR 107.3e: Parse the
     // unified `exile cards from the top of <possessive> library until <until>`
     // pattern. The `until` clause is dispatched into a typed
@@ -3544,7 +3547,7 @@ fn try_parse_exile_from_top_until(tp: TextPair) -> Option<ParsedEffectClause> {
     let rest_lower = &tp.lower[tp.lower.len() - rest_orig.len()..];
 
     let until = parse_until_condition(rest_lower)?;
-    Some(parsed_clause(Effect::ExileFromTopUntil { until }))
+    Some(parsed_clause(Effect::ExileFromTopUntil { player, until }))
 }
 
 /// CR 701.13a + CR 701.57a + CR 702.85a + CR 202.3 + CR 107.3e: Dispatch the
@@ -4803,7 +4806,7 @@ fn parse_clause_ast(text: &str, ctx: &mut ParseContext) -> ClauseAst {
 /// hand"), or `Some((None, input))` when the noun phrase has no leading
 /// quantity (the patcher leaves the existing `count: Fixed(1)` untouched).
 ///
-/// Recognized prefixes (CR 701.24g positional placement, multi-card form):
+/// Recognized prefixes for positional library placement:
 ///   - `"x "` (with X-cost)     → `QuantityExpr::Ref { Variable("X") }`
 ///   - numeric word/digit + " " → `QuantityExpr::Fixed { value: N }`
 ///
@@ -4836,15 +4839,40 @@ fn peel_put_at_library_count(input: &str) -> Option<(Option<QuantityExpr>, &str)
     Some((None, input))
 }
 
+fn parse_exiled_cards_not_cast_cleanup(input: &str) -> Option<()> {
+    let (input, _) = tag::<_, _, OracleError<'_>>("put the exiled cards")
+        .parse(input)
+        .ok()?;
+    let (input, _) = opt(tag::<_, _, OracleError<'_>>(" that weren't cast this way"))
+        .parse(input)
+        .ok()?;
+    let (input, _) = tag::<_, _, OracleError<'_>>(" on the bottom of ")
+        .parse(input)
+        .ok()?;
+    let (input, _) = alt((
+        tag::<_, _, OracleError<'_>>("that library"),
+        tag("their library"),
+        tag("your library"),
+        tag("its owner's library"),
+    ))
+    .parse(input)
+    .ok()?;
+    let (input, _) = opt(tag::<_, _, OracleError<'_>>(" in a random order"))
+        .parse(input)
+        .ok()?;
+    let (input, _) = opt(tag::<_, _, OracleError<'_>>(".")).parse(input).ok()?;
+    input.is_empty().then_some(())
+}
+
 fn lower_clause_ast(ast: ClauseAst, ctx: &mut ParseContext) -> ParsedEffectClause {
     match ast {
         ClauseAst::Imperative { text } => {
             let mut clause = lower_imperative_clause(&text, ctx);
-            // CR 701.24g: "put [N] [type] on top/bottom of library" — the imperative
-            // parser returns PutAtLibraryPosition { target: Any, count: Fixed(1) }
-            // because it dispatches on the positional suffix without extracting the
-            // noun phrase. This patch re-inspects the imperative text and assigns
-            // both the target filter and the cardinality. Covers:
+            // "put [N] [type] on top/bottom of library" — the imperative parser
+            // returns PutAtLibraryPosition { target: Any, count: Fixed(1) }
+            // because it dispatches on the positional suffix without extracting
+            // the noun phrase. This patch re-inspects the imperative text and
+            // assigns both the target filter and the cardinality. Covers:
             //   - "put target X on top of Y's library"           (count = 1)
             //   - "put target X on the bottom of Y's library"    (count = 1)
             //   - "put target X into Y's library Nth from top"   (count = 1)
@@ -4856,6 +4884,11 @@ fn lower_clause_ast(ast: ClauseAst, ctx: &mut ParseContext) -> ParsedEffectClaus
                 ..
             } = clause.effect
             {
+                if parse_exiled_cards_not_cast_cleanup(&text.to_lowercase()).is_some() {
+                    *target = TargetFilter::ExiledBySource;
+                    *count = QuantityExpr::Fixed { value: 0 };
+                    return clause;
+                }
                 let extracted = (|| -> Option<(Option<TargetFilter>, Option<QuantityExpr>)> {
                     let lower = text.to_lowercase();
                     let (after_put, _) = tag::<_, _, OracleError<'_>>("put ")
@@ -6690,6 +6723,11 @@ fn lower_subject_predicate_ast(
             // which would otherwise greedy-match the "reveals/top/library" verbs.
             {
                 let pred_tp = TextPair::new(text.as_str(), pred_lower.as_str());
+                if let Some(clause) =
+                    try_parse_exile_from_top_until(pred_tp, subject.affected.clone())
+                {
+                    return clause;
+                }
                 if let Some(clause) = try_parse_reveal_until(pred_tp, subject.affected.clone()) {
                     return clause;
                 }
@@ -10893,6 +10931,18 @@ pub(crate) fn lower_effect_chain_ir(ir: &EffectChainIr) -> AbilityDefinition {
             // dedicated clause builders that construct sub-abilities directly
             // (e.g., `try_parse_pump_with_damage_sub` at line 3220).
             chain.kind = AbilityKind::Spell;
+            if prev.optional
+                && matches!(*prev.effect, Effect::CastFromZone { .. })
+                && matches!(
+                    *chain.effect,
+                    Effect::PutAtLibraryPosition {
+                        target: TargetFilter::ExiledBySource,
+                        ..
+                    }
+                )
+            {
+                prev.else_ability = Some(Box::new(chain.clone()));
+            }
             if prev.sub_ability.is_some() {
                 // Walk to the deepest sub_ability and append there
                 let mut cursor = &mut prev;
@@ -14102,8 +14152,9 @@ mod tests {
     use crate::types::ability::{
         AbilityCondition, CardTypeSetSource, CastVariantPaid, ChoiceType, Comparator,
         ContinuousModification, ControllerRef, CountScope, DoublePTMode, Duration, FilterProp,
-        GainLifePlayer, LinkedExileScope, ManaContribution, ManaProduction, ObjectScope,
-        PaymentCost, QuantityExpr, QuantityRef, SearchSelectionConstraint, TypeFilter, ZoneRef,
+        GainLifePlayer, LibraryPosition, LinkedExileScope, ManaContribution, ManaProduction,
+        ObjectScope, PaymentCost, QuantityExpr, QuantityRef, SearchSelectionConstraint, TypeFilter,
+        ZoneRef,
     };
     use crate::types::card_type::{CoreType, Supertype};
     use crate::types::keywords::Keyword;
@@ -27633,7 +27684,7 @@ mod tests {
     fn exile_from_top_until_second_person_nonland_filter() {
         let e =
             parse_effect("exile cards from the top of your library until you exile a nonland card");
-        let Effect::ExileFromTopUntil { until } = e else {
+        let Effect::ExileFromTopUntil { player: _, until } = e else {
             panic!("expected ExileFromTopUntil, got {:?}", e);
         };
         let UntilCondition::NextMatches { filter } = until else {
@@ -27660,7 +27711,7 @@ mod tests {
         let e = parse_effect(
             "exile cards from the top of their library until they exile a nonland card",
         );
-        let Effect::ExileFromTopUntil { until } = e else {
+        let Effect::ExileFromTopUntil { player: _, until } = e else {
             panic!("expected ExileFromTopUntil, got {:?}", e);
         };
         let UntilCondition::NextMatches { filter } = until else {
@@ -27673,6 +27724,71 @@ mod tests {
             .type_filters
             .iter()
             .any(|t| matches!(t, TypeFilter::Non(inner) if matches!(**inner, TypeFilter::Land))));
+    }
+
+    /// CR 701.13a + CR 601.2 + CR 118.9 + CR 401.4: Chaos Wand is a
+    /// targeted-player exile-until loop followed by an optional free-cast
+    /// branch and cleanup of cards still linked as exiled this way.
+    #[test]
+    fn chaos_wand_lowers_to_targeted_exile_until_optional_cast_and_cleanup() {
+        let def = parse_effect_chain(
+            "Target opponent exiles cards from the top of their library until they exile an instant or sorcery card. You may cast that card without paying its mana cost. Then put the exiled cards that weren't cast this way on the bottom of that library in a random order.",
+            AbilityKind::Activated,
+        );
+
+        let Effect::ExileFromTopUntil { player, until } = &*def.effect else {
+            panic!("expected ExileFromTopUntil, got {:?}", def.effect);
+        };
+        assert_eq!(
+            *player,
+            TargetFilter::Typed(TypedFilter::default().controller(ControllerRef::Opponent))
+        );
+        let UntilCondition::NextMatches { filter } = until else {
+            panic!("expected NextMatches, got {until:?}");
+        };
+        let TargetFilter::Or { filters } = filter else {
+            panic!("expected instant/sorcery OR filter, got {filter:?}");
+        };
+        assert!(filters.iter().any(
+            |filter| matches!(filter, TargetFilter::Typed(typed) if typed.type_filters.contains(&TypeFilter::Instant))
+        ));
+        assert!(filters.iter().any(
+            |filter| matches!(filter, TargetFilter::Typed(typed) if typed.type_filters.contains(&TypeFilter::Sorcery))
+        ));
+
+        let cast = def
+            .sub_ability
+            .as_deref()
+            .expect("cast branch should be chained");
+        let Effect::CastFromZone {
+            target,
+            without_paying_mana_cost,
+            ..
+        } = &*cast.effect
+        else {
+            panic!("expected CastFromZone, got {:?}", cast.effect);
+        };
+        assert_eq!(*target, TargetFilter::ParentTarget);
+        assert!(*without_paying_mana_cost);
+        assert!(cast.optional);
+
+        for cleanup in [cast.sub_ability.as_deref(), cast.else_ability.as_deref()] {
+            let cleanup = cleanup.expect("cleanup should run after accept or decline");
+            let Effect::PutAtLibraryPosition {
+                target,
+                count,
+                position,
+            } = &*cleanup.effect
+            else {
+                panic!(
+                    "expected PutAtLibraryPosition cleanup, got {:?}",
+                    cleanup.effect
+                );
+            };
+            assert_eq!(*target, TargetFilter::ExiledBySource);
+            assert_eq!(*count, QuantityExpr::Fixed { value: 0 });
+            assert_eq!(*position, LibraryPosition::Bottom);
+        }
     }
 
     /// CR 603.2 + CR 701.57a + CR 702.85a + CR 608.2: Etali's outer ETB trigger
@@ -27698,7 +27814,7 @@ mod tests {
             Some(PlayerFilter::All),
             "player_scope must propagate from \"each player\" subject"
         );
-        let Effect::ExileFromTopUntil { ref until } = *def.effect else {
+        let Effect::ExileFromTopUntil { ref until, .. } = *def.effect else {
             panic!("expected outer ExileFromTopUntil, got {:?}", def.effect);
         };
         let UntilCondition::NextMatches { filter } = until else {
@@ -27802,7 +27918,7 @@ mod tests {
             "player_scope must be Opponent (from \"each opponent\" subject)"
         );
 
-        let Effect::ExileFromTopUntil { ref until } = *def.effect else {
+        let Effect::ExileFromTopUntil { ref until, .. } = *def.effect else {
             panic!(
                 "expected ExileFromTopUntil, got {:?} — issue #316 regression",
                 def.effect
@@ -27831,7 +27947,7 @@ mod tests {
         let e = parse_effect(
             "exile cards from the top of your library until you exile cards with total mana value 4 or greater",
         );
-        let Effect::ExileFromTopUntil { until } = e else {
+        let Effect::ExileFromTopUntil { player: _, until } = e else {
             panic!("expected ExileFromTopUntil, got {:?}", e);
         };
         let UntilCondition::CumulativeThreshold {
@@ -27861,7 +27977,7 @@ mod tests {
 
         assert_eq!(def.player_scope, Some(PlayerFilter::Opponent));
 
-        let Effect::ExileFromTopUntil { ref until } = *def.effect else {
+        let Effect::ExileFromTopUntil { ref until, .. } = *def.effect else {
             panic!("expected ExileFromTopUntil, got {:?}", def.effect);
         };
         let UntilCondition::CumulativeThreshold {
@@ -27894,6 +28010,7 @@ mod tests {
             );
             let e = parse_effect(&text);
             let Effect::ExileFromTopUntil {
+                player: TargetFilter::Controller,
                 until:
                     UntilCondition::CumulativeThreshold {
                         comparator,

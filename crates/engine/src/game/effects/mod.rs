@@ -966,6 +966,9 @@ fn effect_uses_implicit_tracked_set_targets(effect: &Effect) -> bool {
         Effect::GrantCastingPermission {
             target: TargetFilter::TrackedSet { .. },
             ..
+        } | Effect::PutAtLibraryPosition {
+            target: TargetFilter::ExiledBySource,
+            ..
         }
     )
 }

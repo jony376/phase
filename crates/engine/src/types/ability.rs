@@ -2817,7 +2817,7 @@ pub enum ObjectProperty {
     ManaValue,
 }
 
-/// CR 701.13 + CR 701.17a: Termination predicate for an iterative exile-from-top
+/// CR 701.13a + CR 608.2c: Termination predicate for an iterative exile-from-top
 /// loop. The loop exiles one card at a time off the top of a library and checks
 /// the predicate after each exile; the loop ends as soon as the predicate is
 /// satisfied (or the library is empty).
@@ -4128,8 +4128,8 @@ impl LegacyUnlessCost {
 // Effect enum -- typed variants, zero HashMap
 // ---------------------------------------------------------------------------
 
-/// CR 701.24g: Specific position within a library for placement effects.
-/// Top and Bottom use move_to_library_position; NthFromTop inserts at index n-1.
+/// Specific position within a library for placement effects. Top and Bottom use
+/// move_to_library_position; NthFromTop inserts at index n-1.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum LibraryPosition {
@@ -5292,7 +5292,7 @@ pub enum Effect {
     LoseAllPlayerCounters {
         target: TargetFilter,
     },
-    /// CR 701.13 + CR 701.17a: Exile cards from the top of a player's library
+    /// CR 701.13a + CR 608.2c: Exile cards from the top of a player's library
     /// one at a time until the typed `until` predicate is satisfied. The
     /// `until` axis is parameterized by [`UntilCondition`] — either
     /// `NextMatches(filter)` (Etali/Cascade/Discover-shape: stop on first hit
@@ -5302,6 +5302,11 @@ pub enum Effect {
     /// the running sum of the property over every card exiled this resolution
     /// satisfies the comparator vs the threshold; CR 202.3 + CR 107.3e).
     ExileFromTopUntil {
+        /// CR 109.5: Whose library is exiled. `Controller` for "you exile...",
+        /// or any player-resolving target filter for "target opponent exiles..."
+        /// and similar subject-anchored forms.
+        #[serde(default = "default_target_filter_controller")]
+        player: TargetFilter,
         until: UntilCondition,
     },
     /// CR 701.20a: Reveal cards from the top of a player's library one at a time
@@ -5350,9 +5355,10 @@ pub enum Effect {
     MadnessCast {
         cost: super::mana::ManaCost,
     },
-    /// CR 701.24g: Put a card at a specific position in its owner's library.
-    /// Unlike ChangeZone { destination: Library } which auto-shuffles (CR 401.3),
-    /// this uses move_to_library_position for precise placement without shuffling.
+    /// Put a card at a specific position in its owner's library.
+    /// Unlike ChangeZone { destination: Library } which shuffles the destination
+    /// library, this uses move_to_library_position for precise placement without
+    /// shuffling.
     ///
     /// `count` carries the cardinality of the placement ("put **two** cards
     /// from your hand on top of your library in any order" — Cavalier of Gales,
@@ -5376,7 +5382,7 @@ pub enum Effect {
         #[serde(default = "default_target_filter_controller")]
         player: TargetFilter,
     },
-    /// CR 401.4: Target's owner puts it on top or bottom of their library (owner chooses).
+    /// Target's owner puts it on top or bottom of their library (owner chooses).
     PutOnTopOrBottom {
         target: TargetFilter,
     },
@@ -5951,11 +5957,28 @@ impl TargetFilter {
         }
     }
 
+    pub fn references_exiled_by_source(&self) -> bool {
+        match self {
+            TargetFilter::ExiledBySource => true,
+            TargetFilter::And { filters } => filters
+                .iter()
+                .any(TargetFilter::references_exiled_by_source),
+            TargetFilter::Or { filters } => filters
+                .iter()
+                .all(TargetFilter::references_exiled_by_source),
+            TargetFilter::TrackedSetFiltered { filter, .. } => filter.references_exiled_by_source(),
+            _ => false,
+        }
+    }
+
     /// CR 115.1: Returns true for filters that are NOT player-chosen targets —
     /// context references (triggering event participants per CR 603.7c),
     /// parent target anaphora, and self-references resolve automatically
     /// without target selection.
     pub fn is_context_ref(&self) -> bool {
+        if self.references_exiled_by_source() {
+            return true;
+        }
         matches!(
             self,
             TargetFilter::None
@@ -6144,7 +6167,9 @@ impl Effect {
                 ..
             } => source_filter.is_none().then_some(target),
 
-            Effect::ExileTop { player, .. } => Some(player),
+            Effect::ExileTop { player, .. } | Effect::ExileFromTopUntil { player, .. } => {
+                Some(player)
+            }
 
             // CR 111.2 + CR 601.2c: "Target player creates ..." token modes
             // (e.g. Ashling's Command mode 4, Brigid's Command, Prismari Command)
@@ -6212,7 +6237,6 @@ impl Effect {
             | Effect::ChooseFromZone { .. }
             | Effect::ChooseAndSacrificeRest { .. }
             | Effect::GainEnergy { .. }
-            | Effect::ExileFromTopUntil { .. }
             | Effect::RevealUntil { .. }
             | Effect::Discover { .. }
             | Effect::Cascade

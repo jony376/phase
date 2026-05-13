@@ -2661,10 +2661,10 @@ mod tests {
     use super::*;
     use crate::game::zones::create_object;
     use crate::types::ability::{
-        AbilityCost, AbilityKind, CounterTransferMode, Duration, Effect, FilterProp, ModalChoice,
-        ModalSelectionConstraint, MultiTargetSpec, PtValue, QuantityExpr, QuantityRef,
-        SearchSelectionConstraint, TargetFilter, TargetRef, TypeFilter, TypedFilter,
-        UnlessPayModifier,
+        AbilityCost, AbilityKind, CounterTransferMode, Duration, Effect, FilterProp,
+        LibraryPosition, ModalChoice, ModalSelectionConstraint, MultiTargetSpec, PtValue,
+        QuantityExpr, QuantityRef, SearchSelectionConstraint, TargetFilter, TargetRef, TypeFilter,
+        TypedFilter, UnlessPayModifier,
     };
     use crate::types::card_type::CoreType;
     use crate::types::game_state::{
@@ -3695,6 +3695,95 @@ mod tests {
             slots.is_empty(),
             "tracked-set pronouns are bound by prior effects, not chosen as targets"
         );
+    }
+
+    #[test]
+    fn build_target_slots_ignores_exiled_by_source_library_cleanup() {
+        let state = GameState::new_two_player(42);
+        let ability = ResolvedAbility::new(
+            Effect::GenericEffect {
+                static_abilities: vec![],
+                duration: None,
+                target: None,
+            },
+            Vec::new(),
+            ObjectId(1),
+            PlayerId(0),
+        )
+        .sub_ability(ResolvedAbility::new(
+            Effect::PutAtLibraryPosition {
+                target: TargetFilter::ExiledBySource,
+                count: QuantityExpr::Fixed { value: 0 },
+                position: LibraryPosition::Bottom,
+            },
+            Vec::new(),
+            ObjectId(1),
+            PlayerId(0),
+        ));
+
+        let slots = build_target_slots(&state, &ability).expect("target slots should build");
+
+        assert!(
+            slots.is_empty(),
+            "linked-exile cleanup is resolved from source links, not chosen as a target"
+        );
+    }
+
+    #[test]
+    fn build_target_slots_ignores_composed_exiled_by_source_cast_filter() {
+        let state = GameState::new_two_player(42);
+        let ability = ResolvedAbility::new(
+            Effect::CastFromZone {
+                target: TargetFilter::And {
+                    filters: vec![
+                        TargetFilter::Typed(TypedFilter::new(TypeFilter::Instant)),
+                        TargetFilter::ExiledBySource,
+                    ],
+                },
+                without_paying_mana_cost: true,
+                mode: crate::types::ability::CardPlayMode::Cast,
+                cast_transformed: false,
+                alt_ability_cost: None,
+                constraint: None,
+            },
+            Vec::new(),
+            ObjectId(1),
+            PlayerId(0),
+        );
+
+        let slots = build_target_slots(&state, &ability).expect("target slots should build");
+
+        assert!(
+            slots.is_empty(),
+            "typed linked-exile filters are resolved from source links, not chosen as targets"
+        );
+    }
+
+    #[test]
+    fn build_target_slots_keeps_or_filter_with_non_context_branch_targeted() {
+        let state = GameState::new_two_player(42);
+        let ability = ResolvedAbility::new(
+            Effect::CastFromZone {
+                target: TargetFilter::Or {
+                    filters: vec![
+                        TargetFilter::ExiledBySource,
+                        TargetFilter::Typed(TypedFilter::new(TypeFilter::Creature)),
+                    ],
+                },
+                without_paying_mana_cost: true,
+                mode: crate::types::ability::CardPlayMode::Cast,
+                cast_transformed: false,
+                alt_ability_cost: None,
+                constraint: None,
+            },
+            Vec::new(),
+            ObjectId(1),
+            PlayerId(0),
+        );
+
+        let err = build_target_slots(&state, &ability).expect_err("target slot should be required");
+
+        assert!(matches!(err, EngineError::ActionNotAllowed(_)));
     }
 
     #[test]

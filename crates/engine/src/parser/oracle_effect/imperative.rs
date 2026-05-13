@@ -2711,7 +2711,7 @@ pub(super) fn parse_put_ast(text: &str, lower: &str) -> Option<PutImperativeAst>
         }
     }
 
-    // CR 701.24g: "put X on top of Y's library" — specific position, no auto-shuffle.
+    // "put X on top of Y's library" — specific position, no auto-shuffle.
     // Must check before try_parse_put_zone_change which would emit ChangeZone (auto-shuffles).
     // Only matches forms WITHOUT an explicit origin zone ("from your hand") — those
     // specify a real zone transfer and should go through try_parse_put_zone_change.
@@ -2724,13 +2724,13 @@ pub(super) fn parse_put_ast(text: &str, lower: &str) -> Option<PutImperativeAst>
         }
     }
 
-    // CR 701.24g: "put that card on top" / "put it on top" / "put them on top" —
+    // "put that card on top" / "put it on top" / "put them on top" —
     // abbreviated form used after "shuffle" in search-and-put-on-top tutors (41 cards).
     if lower.ends_with("on top") {
         return Some(PutImperativeAst::TopOfLibrary);
     }
 
-    // CR 701.24g: "put X on the bottom of Y's library" — specific position without
+    // "put X on the bottom of Y's library" — specific position without
     // explicit origin zone. Forms with "from" (e.g. "from your hand") go through
     // try_parse_put_zone_change for proper ChangeZone handling.
     if nom_primitives::scan_contains(lower, "on the bottom of")
@@ -2742,13 +2742,13 @@ pub(super) fn parse_put_ast(text: &str, lower: &str) -> Option<PutImperativeAst>
         }
     }
 
-    // CR 701.24g: "put that card on the bottom" / "put it on the bottom" —
+    // "put that card on the bottom" / "put it on the bottom" —
     // abbreviated form without "of Y's library".
     if lower.ends_with("on the bottom") {
         return Some(PutImperativeAst::BottomOfLibrary);
     }
 
-    // CR 701.24g: "put X into Y's library Nth from the top" —
+    // "put X into Y's library Nth from the top" —
     // specific positional placement (God-Eternals, Approach, Bury in Books).
     if let Ok((_, before_from)) = take_until::<_, _, OracleError<'_>>("from the top").parse(lower) {
         {
@@ -2844,8 +2844,8 @@ pub(super) fn lower_put_ast(ast: PutImperativeAst) -> Effect {
                 }
             }
         }
-        // CR 701.24g: Place at a specific position — uses move_to_library_position,
-        // not ChangeZone which auto-shuffles per CR 401.3. `count` defaults to
+        // Place at a specific position — uses move_to_library_position,
+        // not ChangeZone which shuffles the destination library. `count` defaults to
         // `Fixed(1)` here; the cardinality patcher in `oracle_effect/mod.rs`
         // upgrades it (and the target filter) by re-inspecting the imperative
         // text once the clause has been lowered.

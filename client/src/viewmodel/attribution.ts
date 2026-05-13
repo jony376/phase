@@ -1,4 +1,5 @@
 import type {
+  AttributionLayer,
   ContinuousModification,
   EffectRef,
   GameObject,
@@ -85,13 +86,40 @@ export function resolveEffectRef(
 }
 
 /**
+ * Composable primitive: resolves every `EffectRef` in one layer bucket on
+ * the given object, filtering out self-grants (CR 113.3c — a permanent's
+ * own static abilities granting itself a characteristic read as "base" to
+ * the player). Returns dereferenced `ResolvedAttribution` records the
+ * caller can filter/group by `modification.type`.
+ *
+ * All per-surface builders (`buildGrantedKeywordSources`, `buildPTSources`,
+ * etc.) compose on top of this so layer/sublayer plumbing lives in exactly
+ * one place.
+ */
+export function resolveLayerAttributions(
+  attribution: ObjectAttribution | undefined,
+  layer: AttributionLayer,
+  objectId: ObjectId,
+  deref: AttributionDeref,
+): ResolvedAttribution[] {
+  const refs = attribution?.by_layer?.[layer];
+  if (!refs) return [];
+  const out: ResolvedAttribution[] = [];
+  for (const ref of refs) {
+    const resolved = resolveEffectRef(deref, ref);
+    if (!resolved) continue;
+    if (resolved.sourceId === objectId) continue;
+    out.push(resolved);
+  }
+  return out;
+}
+
+/**
  * Builds a `keyword_name → source_name` map for one object by dereferencing
  * every `EffectRef` in its `Layer::Ability` bucket that grants a keyword.
  *
- * Self-grants (source === objectId) are filtered out because a creature
- * granting itself a keyword via its own static ability is functionally
- * "base" from the player's perspective; the engine emits them and the
- * display layer chooses to hide them per CR 113.3c intuition.
+ * Self-grants (source === objectId) are filtered out via
+ * `resolveLayerAttributions`.
  *
  * Returns an empty map when the object has no attribution entries. Pass
  * `attribution` as `undefined` for the legacy-state case.
@@ -102,20 +130,88 @@ export function buildGrantedKeywordSources(
   deref: AttributionDeref,
 ): Map<string, string> {
   const result = new Map<string, string>();
-  const abilityLayer = attribution?.by_layer?.Ability;
-  if (!abilityLayer) return result;
-
-  for (const ref of abilityLayer) {
-    const resolved = resolveEffectRef(deref, ref);
-    if (!resolved) continue;
-    if (resolved.sourceId === objectId) continue; // hide self-grants
-    const mod = resolved.modification;
+  for (const r of resolveLayerAttributions(
+    attribution,
+    "Ability",
+    objectId,
+    deref,
+  )) {
+    const mod = r.modification;
     if (mod.type !== "AddKeyword") continue;
     const keyword = (mod as { type: "AddKeyword"; keyword: Keyword }).keyword;
     const name = getKeywordName(keyword);
     if (!result.has(name)) {
-      result.set(name, resolved.sourceName);
+      result.set(name, r.sourceName);
     }
   }
   return result;
+}
+
+/**
+ * One source's contribution to an object's P/T, aggregated across all
+ * modifications that source provided in CR 613 layer 7c (ModifyPT). Static
+ * anthems typically emit `AddPower{+1}` and `AddToughness{+1}` as two
+ * modifications on the same `StaticDefinition`; we sum them per source so
+ * the display shows "+1/+1 from Lord" rather than two separate entries.
+ *
+ * Dynamic `AddDynamicPower` / `AddDynamicToughness` are intentionally
+ * omitted — their resolved per-target delta isn't surfaced in attribution
+ * (would require re-resolving the quantity expression FE-side, which
+ * violates the display-layer boundary). The static `Add{Power,Toughness}`
+ * cases cover anthems, lords, and "+N/+N until end of turn" — the
+ * overwhelming majority of P/T modifications.
+ */
+export interface PTContribution {
+  sourceName: string;
+  deltaPower: number;
+  deltaToughness: number;
+}
+
+export function buildPTSources(
+  attribution: ObjectAttribution | undefined,
+  objectId: ObjectId,
+  deref: AttributionDeref,
+): PTContribution[] {
+  const bySource = new Map<
+    ObjectId,
+    { sourceName: string; deltaPower: number; deltaToughness: number }
+  >();
+  for (const r of resolveLayerAttributions(
+    attribution,
+    "ModifyPT",
+    objectId,
+    deref,
+  )) {
+    const mod = r.modification;
+    let dp = 0;
+    let dt = 0;
+    if (mod.type === "AddPower") {
+      dp = (mod as { type: "AddPower"; value: number }).value;
+    } else if (mod.type === "AddToughness") {
+      dt = (mod as { type: "AddToughness"; value: number }).value;
+    } else {
+      continue;
+    }
+    const cur = bySource.get(r.sourceId) ?? {
+      sourceName: r.sourceName,
+      deltaPower: 0,
+      deltaToughness: 0,
+    };
+    cur.deltaPower += dp;
+    cur.deltaToughness += dt;
+    bySource.set(r.sourceId, cur);
+  }
+  return [...bySource.values()].filter(
+    (c) => c.deltaPower !== 0 || c.deltaToughness !== 0,
+  );
+}
+
+/**
+ * Formats a single contribution as "+N/+M" (signed). The two parts may
+ * have different signs (e.g. a "-1/+1" tradeoff effect) so each component
+ * is formatted independently.
+ */
+export function formatPTDelta(c: PTContribution): string {
+  const fmt = (n: number) => (n >= 0 ? `+${n}` : String(n));
+  return `${fmt(c.deltaPower)}/${fmt(c.deltaToughness)}`;
 }

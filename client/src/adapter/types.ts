@@ -1335,6 +1335,8 @@ export interface TransientContinuousEffect {
 export type ContinuousModification =
   | { type: "AddKeyword"; keyword: Keyword }
   | { type: "RemoveKeyword"; keyword: Keyword }
+  | { type: "AddPower"; value: number }
+  | { type: "AddToughness"; value: number }
   | { type: string; [key: string]: unknown };
 
 // ── Adapter Interface ────────────────────────────────────────────────────

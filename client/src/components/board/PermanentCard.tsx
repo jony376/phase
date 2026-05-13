@@ -17,7 +17,7 @@ import { useLongPress } from "../../hooks/useLongPress.ts";
 import { useGameStore } from "../../stores/gameStore.ts";
 import { usePreferencesStore } from "../../stores/preferencesStore.ts";
 import { useUiStore } from "../../stores/uiStore.ts";
-import { buildGrantedKeywordSources } from "../../viewmodel/attribution.ts";
+import { buildGrantedKeywordSources, buildPTSources } from "../../viewmodel/attribution.ts";
 import { COUNTER_COLORS, computePTDisplay, formatCounterTooltip, formatCounterType, toRoman } from "../../viewmodel/cardProps.ts";
 import { getCardDisplayColors } from "../card/cardFrame.ts";
 import { useBoardInteractionState } from "./BoardInteractionContext.tsx";
@@ -117,6 +117,16 @@ export const PermanentCard = memo(function PermanentCard({ objectId, attachments
     () =>
       obj
         ? buildGrantedKeywordSources(objectAttribution, obj.id, {
+            objects: gameObjects,
+            transientContinuousEffects,
+          })
+        : undefined,
+    [objectAttribution, transientContinuousEffects, gameObjects, obj?.id],
+  );
+  const ptSources = useMemo(
+    () =>
+      obj
+        ? buildPTSources(objectAttribution, obj.id, {
             objects: gameObjects,
             transientContinuousEffects,
           })
@@ -521,7 +531,14 @@ export const PermanentCard = memo(function PermanentCard({ objectId, attachments
           </div>
 
           {/* P/T box for creatures */}
-          {ptDisplay && <PTBox ptDisplay={ptDisplay} />}
+          {ptDisplay && (
+            <PTBox
+              ptDisplay={ptDisplay}
+              ptSources={ptSources}
+              basePower={obj.base_power}
+              baseToughness={obj.base_toughness}
+            />
+          )}
 
           {/* Damage overlay for non-creatures only (creatures use P/T box) */}
           {!ptDisplay && obj.damage_marked > 0 && (

@@ -272,16 +272,20 @@ pub(super) fn handle_replacement_choice(
                 create @ ProposedEvent::CreateToken { .. } => {
                     apply_create_token_after_replacement(state, create, events);
                 }
-                // CR 703.4q + CR 616.1: EmptyManaPool resume after a player has
-                // chosen one of several step-end mana handlers to apply. Real
-                // disposition walk + handler-list drain wire up in commit 2;
-                // for now the arm exists only for exhaustiveness because the
-                // pipeline is not yet seeded with `EmptyManaPool` events.
-                ProposedEvent::EmptyManaPool { .. } => {
-                    debug_assert!(
-                        false,
-                        "handle_replacement_choice: EmptyManaPool resume not wired (commit 2)"
+                // CR 703.4q + CR 616.1 / CR 616.1e: EmptyManaPool resume.
+                // The player has chosen one handler ordering; apply the
+                // (now-mutated) per-unit dispositions to the affected
+                // player's pool. If `pending_phase_transition_progress` is
+                // still set, drain remaining APNAP-ordered players — that
+                // call may itself pause again on another player's choice
+                // (CR 616.1e iteration).
+                ProposedEvent::EmptyManaPool {
+                    player_id, units, ..
+                } => {
+                    crate::types::mana::apply_empty_mana_pool_decisions(
+                        state, player_id, &units, events,
                     );
+                    state.pending_step_end_mana_handlers.clear();
                 }
             }
 
@@ -323,6 +327,21 @@ pub(super) fn handle_replacement_choice(
                 // in which case it sets `state.waiting_for` to the next ReplacementChoice.
                 // Propagate that back so the engine surfaces the correct prompt.
                 if !matches!(state.waiting_for, WaitingFor::Priority { .. }) {
+                    waiting_for = state.waiting_for.clone();
+                }
+            }
+
+            // CR 616.1e + CR 703.4q: An EmptyManaPool resume may leave more
+            // players in the APNAP queue. Drain the next player(s); the
+            // drain may itself pause on another CR 616.1 choice, in which
+            // case it sets `state.waiting_for` for us to propagate.
+            if matches!(waiting_for, WaitingFor::Priority { .. })
+                && state.pending_phase_transition_progress.is_some()
+            {
+                super::turns::drain_pending_phase_transition_progress(state, events);
+                if !matches!(state.waiting_for, WaitingFor::Priority { .. })
+                    && state.pending_phase_transition_progress.is_some()
+                {
                     waiting_for = state.waiting_for.clone();
                 }
             }

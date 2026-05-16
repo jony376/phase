@@ -42,3 +42,4 @@ mod timely_ward_regression;
 mod treasured_find_regression;
 mod ureni_attack_trigger;
 mod urzas_saga_chapter_two;
+mod virulent_emissary_trigger;

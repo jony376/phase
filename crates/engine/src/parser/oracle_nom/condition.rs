@@ -1963,6 +1963,25 @@ fn parse_zone_conditions(input: &str) -> OracleResult<'_, StaticCondition> {
     use crate::types::zones::Zone;
 
     alt((
+        // CR 110.1: A permanent is a card or token on the battlefield.
+        // "this enchantment" / "this permanent" (etc.) are self-referential
+        // subject tokens equivalent to "~" for a permanent's own zone check.
+        value(
+            StaticCondition::SourceInZone {
+                zone: Zone::Battlefield,
+            },
+            preceded(
+                alt((
+                    tag("~"),
+                    tag("this card"),
+                    tag("this enchantment"),
+                    tag("this permanent"),
+                    tag("this creature"),
+                    tag("this artifact"),
+                )),
+                tag(" is on the battlefield"),
+            ),
+        ),
         // CR 702.62b: A card is suspended while it is in exile with a time
         // counter on it. The "has suspend" component is guaranteed by cards
         // that print this source-referential condition.
@@ -4253,6 +4272,31 @@ mod tests {
         let (rest, c) = parse_condition("if it's your turn, do").unwrap();
         assert_eq!(rest, ", do");
         assert_eq!(c, StaticCondition::DuringYourTurn);
+    }
+
+    #[test]
+    fn parse_inner_condition_this_enchantment_on_battlefield() {
+        // SUB-FIX B: "this enchantment is on the battlefield" is a
+        // self-referential zone check equivalent to "~ is on the battlefield".
+        for subject in [
+            "~",
+            "this card",
+            "this enchantment",
+            "this permanent",
+            "this creature",
+            "this artifact",
+        ] {
+            let input = format!("{subject} is on the battlefield");
+            let (rest, c) = parse_inner_condition(&input).unwrap();
+            assert_eq!(rest, "", "subject={subject}");
+            assert_eq!(
+                c,
+                StaticCondition::SourceInZone {
+                    zone: crate::types::zones::Zone::Battlefield,
+                },
+                "subject={subject}",
+            );
+        }
     }
 
     #[test]

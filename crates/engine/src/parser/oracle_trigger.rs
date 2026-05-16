@@ -7409,6 +7409,23 @@ mod tests {
     }
 
     #[test]
+    fn static_condition_to_trigger_condition_source_in_battlefield() {
+        // SUB-FIX B regression: the existing SourceInZone mapper must pass
+        // Zone::Battlefield through unchanged so the new battlefield condition
+        // arm hoists to a trigger-level intervening-if (CR 603.4).
+        use crate::types::zones::Zone;
+        let mapped = static_condition_to_trigger_condition(&StaticCondition::SourceInZone {
+            zone: Zone::Battlefield,
+        });
+        assert_eq!(
+            mapped,
+            Some(TriggerCondition::SourceInZone {
+                zone: Zone::Battlefield,
+            }),
+        );
+    }
+
+    #[test]
     fn trigger_etb_self() {
         let def = parse_trigger_line(
             "When this creature enters, it deals 1 damage to each opponent.",

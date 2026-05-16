@@ -4670,7 +4670,11 @@ fn try_parse_for_each_effect(text: &str, ctx: &mut ParseContext) -> Option<Parse
                 supertypes,
                 static_abilities,
                 enter_with_counters,
-                count: quantity,
+                // CR 109.4: a "their <zone>" possessive in the for-each clause
+                // binds to the player creating the token. Stamp ScopedPlayer
+                // so an "each player creates … for each … in their graveyard"
+                // iteration counts each player's OWN zone.
+                count: token::scope_token_for_each_to_iterating_player(quantity),
             },
             other => other,
         };

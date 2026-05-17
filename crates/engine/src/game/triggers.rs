@@ -10810,6 +10810,172 @@ pub mod tests {
             }
         }
     }
+
+    // -----------------------------------------------------------------------
+    // Issue #461: Sowing Mycospawn's kicked cast-trigger ("When you cast this
+    // spell, if it was kicked, exile target land.") must actually exile the
+    // chosen land. The intervening-'if' AdditionalCostPaid condition (CR 603.4)
+    // is rechecked at resolution; it reads `kickers_paid` off the
+    // spell-on-stack object, which `finalize_cast_to_stack` must stamp.
+    // -----------------------------------------------------------------------
+
+    /// Sowing Mycospawn's full Oracle text (kicker + two SpellCast triggers).
+    const SOWING_MYCOSPAWN_ORACLE: &str = "Devoid (This card has no color.)\n\
+        Kicker {1}{C} (You may pay an additional {1}{C} as you cast this spell.)\n\
+        When you cast this spell, search your library for a land card, put it \
+        onto the battlefield, then shuffle.\n\
+        When you cast this spell, if it was kicked, exile target land.";
+
+    /// Build a scenario with Sowing Mycospawn in P0's hand and a single land
+    /// (P1's) on the battlefield as the exile target. Returns the runner, the
+    /// spell's `ObjectId`/`CardId`, and the target land's `ObjectId`.
+    fn sowing_mycospawn_scenario() -> (
+        crate::game::scenario::GameRunner,
+        ObjectId,
+        CardId,
+        ObjectId,
+    ) {
+        use crate::game::scenario::GameScenario;
+        use crate::types::mana::ManaCostShard;
+
+        let mut scenario = GameScenario::new();
+        scenario.at_phase(Phase::PreCombatMain);
+
+        // {4}{C} mana cost.
+        let spell_builder = scenario.add_creature_to_hand_from_oracle(
+            PlayerId(0),
+            "Sowing Mycospawn",
+            3,
+            3,
+            SOWING_MYCOSPAWN_ORACLE,
+        );
+        let spell_id = spell_builder.id();
+        let spell_card_id = scenario.state.objects[&spell_id].card_id;
+        scenario.state.objects.get_mut(&spell_id).unwrap().mana_cost = ManaCost::Cost {
+            shards: vec![ManaCostShard::Colorless],
+            generic: 4,
+        };
+
+        // The land to be exiled — opponent-controlled so it is unambiguous.
+        // P0's library has no land cards, so the first cast-trigger's
+        // SearchLibrary fizzles without prompting.
+        let target_land = scenario.add_basic_land(PlayerId(1), ManaColor::Red);
+
+        let runner = scenario.build();
+        (runner, spell_id, spell_card_id, target_land)
+    }
+
+    /// Add enough colorless mana to pay {4}{C} plus the {1}{C} kicker.
+    fn fund_sowing_mycospawn(runner: &mut crate::game::scenario::GameRunner, kicked: bool) {
+        let count = if kicked { 7 } else { 5 };
+        let p0 = runner
+            .state_mut()
+            .players
+            .iter_mut()
+            .find(|p| p.id == PlayerId(0))
+            .unwrap();
+        for _ in 0..count {
+            p0.mana_pool.add(ManaUnit {
+                color: ManaType::Colorless,
+                source_id: ObjectId(0),
+                snow: false,
+                source_could_produce_two_or_more_colors: false,
+                restrictions: Vec::new(),
+                grants: vec![],
+                expiry: None,
+            });
+        }
+    }
+
+    /// Drive every casting/targeting prompt to completion, paying the kicker
+    /// per `kicked` and routing any target prompt to `target_land`. Returns
+    /// once the stack is empty and P0 holds priority.
+    fn drive_sowing_mycospawn(
+        runner: &mut crate::game::scenario::GameRunner,
+        kicked: bool,
+        target_land: ObjectId,
+    ) {
+        for _ in 0..60 {
+            match runner.state().waiting_for.clone() {
+                WaitingFor::Priority { .. } if runner.state().stack.is_empty() => break,
+                WaitingFor::OptionalCostChoice { .. } => {
+                    runner
+                        .act(GameAction::DecideOptionalCost { pay: kicked })
+                        .expect("kicker decision must be accepted");
+                }
+                WaitingFor::TriggerTargetSelection { .. }
+                | WaitingFor::TargetSelection { .. }
+                | WaitingFor::MultiTargetSelection { .. } => {
+                    runner
+                        .act(GameAction::ChooseTarget {
+                            target: Some(TargetRef::Object(target_land)),
+                        })
+                        .or_else(|_| {
+                            runner.act(GameAction::SelectTargets {
+                                targets: vec![TargetRef::Object(target_land)],
+                            })
+                        })
+                        .expect("target selection must be accepted");
+                }
+                _ => {
+                    if runner.act(GameAction::PassPriority).is_err() {
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    /// CR 603.4 + CR 702.33d: Casting Sowing Mycospawn KICKED must, on the
+    /// second cast-trigger's resolution, exile the chosen target land. This
+    /// drives the real cast pipeline (`apply`) — it is a pipeline test, not a
+    /// shape test. Regression guard for issue #461.
+    #[test]
+    fn sowing_mycospawn_kicked_cast_trigger_exiles_target_land() {
+        let (mut runner, spell_id, spell_card_id, target_land) = sowing_mycospawn_scenario();
+        fund_sowing_mycospawn(&mut runner, true);
+
+        runner
+            .act(GameAction::CastSpell {
+                object_id: spell_id,
+                card_id: spell_card_id,
+                targets: vec![],
+            })
+            .expect("casting Sowing Mycospawn must be accepted");
+
+        drive_sowing_mycospawn(&mut runner, true, target_land);
+
+        assert_eq!(
+            runner.state().objects[&target_land].zone,
+            Zone::Exile,
+            "kicked Sowing Mycospawn's second cast-trigger must exile the target land"
+        );
+    }
+
+    /// CR 603.4: Casting Sowing Mycospawn UNKICKED — the second cast-trigger's
+    /// intervening-'if' AdditionalCostPaid condition is false, so the land is
+    /// never exiled. Negative control for issue #461.
+    #[test]
+    fn sowing_mycospawn_unkicked_cast_trigger_does_not_exile_land() {
+        let (mut runner, spell_id, spell_card_id, target_land) = sowing_mycospawn_scenario();
+        fund_sowing_mycospawn(&mut runner, false);
+
+        runner
+            .act(GameAction::CastSpell {
+                object_id: spell_id,
+                card_id: spell_card_id,
+                targets: vec![],
+            })
+            .expect("casting Sowing Mycospawn must be accepted");
+
+        drive_sowing_mycospawn(&mut runner, false, target_land);
+
+        assert_ne!(
+            runner.state().objects[&target_land].zone,
+            Zone::Exile,
+            "unkicked Sowing Mycospawn must not exile the land (intervening-'if' false)"
+        );
+    }
     // -----------------------------------------------------------------------
     // Issue #423: dies-triggers (Undying, Blood Artist-class) must not be lost
     // when a creature is sacrificed inside a resolution-choice handler.

@@ -2418,6 +2418,7 @@ pub(super) fn finalize_cast_with_phyrexian_choices(
     // permanent spells with no on-resolve ability still need this for ETB
     // replacements on X-cost cards like Astral Cornucopia, Walking Ballista, etc.
     let cost_x_paid = ability.chosen_x;
+    let kickers_paid = ability.context.kickers_paid.clone();
     let convoked_creatures = state
         .pending_cast
         .as_ref()
@@ -2457,6 +2458,18 @@ pub(super) fn finalize_cast_with_phyrexian_choices(
     if !convoked_creatures.is_empty() {
         if let Some(obj) = state.objects.get_mut(&object_id) {
             obj.convoked_creatures = convoked_creatures;
+        }
+    }
+    // CR 603.4 + CR 702.33d: Stamp kicker payments onto the spell-on-stack
+    // object so cast-triggers ("When you cast this spell, if it was kicked,
+    // ...") can evaluate their intervening-'if' AdditionalCostPaid condition.
+    // Cast-triggers resolve BEFORE the spell does (CR 603.3), so the
+    // permanent-entry stamp in stack.rs is too late for them. The stamped
+    // Vec<KickerVariant> also carries multikicker counts (CR 702.33c). Mirrors
+    // the cost_x_paid / convoked_creatures stamps directly above.
+    if !kickers_paid.is_empty() {
+        if let Some(obj) = state.objects.get_mut(&object_id) {
+            obj.kickers_paid.clone_from(&kickers_paid);
         }
     }
     if let Some(permission) = cast_timing_permission {

@@ -1195,11 +1195,57 @@ fn detect_dynamic_qty(
     {
         return;
     }
+    // CR 608.2e + CR 109.5: "For each opponent who doesn't, <body>" is a
+    // per-opponent decline iteration, NOT a dynamic quantity — its carrier is a
+    // `player_scope: Opponent` node with a `Not{IfYouDo}`-conditioned
+    // decline-consequence sub-ability. When the sole "for each" marker is this
+    // decline phrase and the AST carries the `Not{IfYouDo}` decline gate, the
+    // clause IS represented; the DynamicQty warning is a false positive.
+    if cleaned_for_each_is_only_decline_iteration(cleaned)
+        && json_has_any(ast_json, &["\"Not\"", "\"IfYouDo\""])
+    {
+        return;
+    }
     diagnostics.push(OracleDiagnostic::SwallowedClause {
         detector: "DynamicQty".into(),
         description: truncate(original, 140).into(),
         line_index: 0,
     });
+}
+
+/// CR 608.2e: True when every "for each " occurrence in the classified text is
+/// the "for each opponent who doesn't / does not" decline-iteration phrase and
+/// no other dynamic-quantity marker is present. Such text's iteration is
+/// carried by a `player_scope` node, not a `QuantityExpr`.
+fn cleaned_for_each_is_only_decline_iteration(cleaned: &str) -> bool {
+    // allow-noncombinator: swallow detector marker scan on classified text
+    if !cleaned.contains("for each ") {
+        return false;
+    }
+    // Every "for each" must be immediately followed by the decline subject.
+    let all_for_each_are_decline = cleaned
+        .match_indices("for each ") // allow-noncombinator: swallow detector marker scan on classified text
+        .all(|(idx, _)| {
+            let rest = &cleaned[idx..];
+            rest.starts_with("for each opponent who doesn't") // allow-noncombinator: swallow detector marker scan on classified text
+                || rest.starts_with("for each opponent who does not") // allow-noncombinator: swallow detector marker scan on classified text
+        });
+    if !all_for_each_are_decline {
+        return false;
+    }
+    // No OTHER dynamic marker may be present.
+    ![
+        " equal to ",
+        "where x is ",
+        "the number of ",
+        "half your ",
+        "half their ",
+        "half its ",
+        "half the ",
+    ]
+    .iter()
+    // allow-noncombinator: swallow detector marker scan on classified text
+    .any(|marker| cleaned.contains(marker))
 }
 
 fn cleaned_has_only_counter_multiplier_dynamic(cleaned: &str) -> bool {

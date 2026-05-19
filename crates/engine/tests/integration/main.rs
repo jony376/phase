@@ -8,6 +8,7 @@ mod aura_on_player;
 mod belbe_thornbow_life_loss;
 mod betor_lifelink_counters_repro;
 mod bracket_signals;
+mod braids_arisen_nightmare_decline;
 mod brigid_mana_ability;
 mod chain_of_smog_copy;
 mod coalition_relic_integration;

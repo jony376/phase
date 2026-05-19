@@ -9947,6 +9947,13 @@ pub(crate) fn parse_effect_chain_ir(
     // made in earlier chunks. Seeded into each `chunk_ctx` and read back after.
     let mut chain_chosen_player_count: u8 = 0;
     let mut chain_chosen_player_scope: Option<ControllerRef> = None;
+    // CR 608.2e + CR 109.5: Sticky across chunks of a "For each opponent who
+    // doesn't, <body>" decline-consequence sentence. Set true on the chunk that
+    // carries the "for each opponent who doesn't" prefix; every chunk while
+    // active has its recipient-bearing effects rebound ("that player" →
+    // ScopedPlayer, "you" → OriginalController). Reset at the next `Sentence`
+    // boundary, so a following independent instruction is unaffected.
+    let mut decline_consequence_active = false;
 
     for (chunk_idx, chunk) in chunks.iter().enumerate() {
         let normalized_text = strip_leading_sequence_connector(&chunk.text).trim();
@@ -10729,6 +10736,43 @@ pub(crate) fn parse_effect_chain_ir(
         let mut player_scope = player_scope
             .or(implicit_player_scope)
             .or(carried_player_scope);
+
+        // CR 608.2e + CR 608.2c: "For each opponent who doesn't, <body>" is a
+        // separate-sentence decline-tail of a preceding "each opponent may
+        // <optional action>". Strip the prefix, then stamp `player_scope:
+        // Opponent` (the body iterates per opponent) + `condition: Not{IfYouDo}`
+        // (the body runs only for an opponent who did NOT perform the optional
+        // action). Retarget the preceding clause's trailing boundary to `Then`
+        // so this clause lowers as a within-action `ContinuationStep` — never a
+        // `SequentialSibling` that would resolve even when the opponent accepts.
+        let (text, condition, is_decline_head) =
+            if let Some(body) = strip_for_each_opponent_who_doesnt(&text) {
+                // CR 608.2e: Do NOT stamp `player_scope` on the body — it
+                // inherits the parent `Sacrifice(opponent)` node's
+                // `player_scope: Opponent` iteration by being its `sub_ability`
+                // inside the scoped clone. The `Not{IfYouDo}` condition makes it
+                // a decline branch; recipient rebinds resolve "that player"/"you".
+                if let Some(prev) = clauses.last_mut() {
+                    if prev.boundary == Some(ClauseBoundary::Sentence) {
+                        prev.boundary = Some(ClauseBoundary::Then);
+                    }
+                }
+                decline_consequence_active = true;
+                (
+                    body,
+                    Some(AbilityCondition::Not {
+                        condition: Box::new(AbilityCondition::IfYouDo),
+                    }),
+                    true,
+                )
+            } else {
+                (text, condition, false)
+            };
+        // Recipient rebinds apply to every chunk of the decline-consequence
+        // sentence; the `Not{IfYouDo}` condition and `player_scope` only to the
+        // head chunk that carried the "for each opponent who doesn't" prefix.
+        let is_decline_consequence = is_decline_head || decline_consequence_active;
+
         let (text, mut unless_pay) = extract_resolution_unless_pay_modifier(&text);
 
         // CR 701.21a + CR 608.2k: Derive the actor performing this chunk's effect
@@ -11013,6 +11057,14 @@ pub(crate) fn parse_effect_chain_ir(
         // carries the caster default (Controller). Per D-04, this is parse-time
         // pronoun resolution that belongs in IR production.
         let mut clause = clause;
+        // CR 109.5: For a "for each opponent who doesn't" decline body, rebind
+        // every recipient-bearing node so "that player" → ScopedPlayer and
+        // "you" → OriginalController resolve relative to the per-opponent
+        // iteration. The undirected `LoseLife { target: None }` shape is rebound
+        // to `Some(ScopedPlayer)` so the life loss hits the declining opponent.
+        if is_decline_consequence {
+            rebind_decline_body_recipients(&mut clause);
+        }
         if nom_primitives::scan_contains(&text.to_lowercase(), "villainous choice") {
             if let (Effect::ChooseOneOf { chooser, .. }, Some(scope)) =
                 (&mut clause.effect, player_scope.clone())
@@ -11513,6 +11565,13 @@ pub(crate) fn parse_effect_chain_ir(
         chain_chosen_player_count = chunk_ctx.chosen_player_count;
         if let Some(scope @ ControllerRef::ChosenPlayer { .. }) = &chunk_ctx.relative_player_scope {
             chain_chosen_player_scope = Some(scope.clone());
+        }
+
+        // CR 608.2e: The decline-consequence rebind scope ends at the sentence
+        // boundary — a following independent instruction is not part of the
+        // "for each opponent who doesn't" body.
+        if chunk.boundary_after == Some(ClauseBoundary::Sentence) {
+            decline_consequence_active = false;
         }
     }
 
@@ -12848,6 +12907,80 @@ fn strip_each_player_subject(text: &str) -> (Option<PlayerFilter>, String) {
     // Deconjugate the verb: "discards" → "discard", "draws" → "draw"
     let deconjugated = subject::deconjugate_verb(rest);
     (Some(scope), deconjugated)
+}
+
+/// CR 608.2e + CR 608.2c: Strip a leading "For each opponent who doesn't, "
+/// decline-tail prefix. This is a separate sentence whose body ("that player
+/// loses N life and you draw a card") runs once per opponent who declined the
+/// preceding "each opponent may <optional action>" — i.e. it is a per-opponent
+/// iteration gated on the decline of the optional action. Returns the body text
+/// on match; the caller stamps `player_scope: Opponent` + `condition:
+/// Not{IfYouDo}` on the resulting clause so the body resolves per declining
+/// opponent. The `tag()`/`alt()` chain is both the detector and the consumer —
+/// no `contains()`/`starts_with()`.
+fn strip_for_each_opponent_who_doesnt(text: &str) -> Option<String> {
+    let lower = text.to_lowercase();
+    nom_on_lower(text, &lower, |i| {
+        value(
+            (),
+            preceded(
+                alt((
+                    tag("for each opponent who doesn't"),
+                    tag("for each opponent who does not"),
+                )),
+                preceded(opt(tag(",")), opt(multispace1)),
+            ),
+        )
+        .parse(i)
+    })
+    .map(|((), rest)| rest.to_string())
+}
+
+/// CR 109.5 + CR 115.10: Within a "for each opponent who doesn't" decline body,
+/// "that player" is the scoped (per-iteration) opponent and "you" is the printed
+/// ability controller. Rewrite a recipient-bearing effect's recipient so it
+/// rebinds correctly inside the surrounding `player_scope: Opponent` iteration:
+/// - `TriggeringPlayer` → `ScopedPlayer` ("that player" event-context anaphor)
+/// - `ParentTargetController` → `ScopedPlayer` ("that player" parsed as the
+///   controller of the parent `Sacrifice(opponent)` node's target — which is
+///   the declining opponent's own permanent, i.e. the scoped opponent)
+/// - `Controller` → `OriginalController` ("you" — the fixed printed controller)
+/// - an undirected `LoseLife { target: None }` → `Some(ScopedPlayer)` — the live
+///   card data drops the "that player" subject, but inside a decline body an
+///   undirected life loss IS "that player" by CR 109.5 context.
+fn rebind_decline_body_recipient(effect: &mut Effect) {
+    fn rebind(filter: &mut TargetFilter) {
+        match filter {
+            TargetFilter::TriggeringPlayer | TargetFilter::ParentTargetController => {
+                *filter = TargetFilter::ScopedPlayer
+            }
+            TargetFilter::Controller => *filter = TargetFilter::OriginalController,
+            _ => {}
+        }
+    }
+    match effect {
+        Effect::LoseLife { target, .. } => match target {
+            Some(filter) => rebind(filter),
+            None => *target = Some(TargetFilter::ScopedPlayer),
+        },
+        Effect::Draw { target, .. }
+        | Effect::Discard { target, .. }
+        | Effect::Mill { target, .. } => rebind(target),
+        Effect::Token { owner, .. } => rebind(owner),
+        _ => {}
+    }
+}
+
+/// CR 109.5: Walk a decline-consequence body chain (`effect` + every
+/// `sub_ability` descendant) and rebind each recipient-bearing node so "that
+/// player"/"you" resolve relative to the per-opponent iteration.
+fn rebind_decline_body_recipients(clause: &mut ParsedEffectClause) {
+    rebind_decline_body_recipient(&mut clause.effect);
+    let mut cursor = clause.sub_ability.as_deref_mut();
+    while let Some(node) = cursor {
+        rebind_decline_body_recipient(&mut node.effect);
+        cursor = node.sub_ability.as_deref_mut();
+    }
 }
 
 /// CR 109.4 + CR 700.1: Strip a "who [doesn't] control [type-phrase]" relative
@@ -25991,6 +26124,78 @@ mod tests {
             "sub effect should be Tap, got {:?}",
             sub.effect
         );
+    }
+
+    /// CR 608.2e + CR 109.5: Braids, Arisen Nightmare's decline-consequence
+    /// tail. "If you do, each opponent may sacrifice ... For each opponent who
+    /// doesn't, that player loses 2 life and you draw a card." must lower to a
+    /// `Sacrifice(opponent)` node (`IfYouDo`, `player_scope: Opponent`) whose
+    /// `Not{IfYouDo}`-conditioned body is `LoseLife { target: ScopedPlayer } →
+    /// Draw { target: OriginalController }`, both `ContinuationStep` links.
+    #[test]
+    fn for_each_opponent_who_doesnt_lowers_decline_consequence() {
+        use crate::types::ability::SubAbilityLink;
+        let def = parse_effect_chain(
+            "you may sacrifice an artifact, creature, enchantment, land, or \
+             planeswalker. If you do, each opponent may sacrifice a permanent \
+             of their choice that shares a card type with it. For each \
+             opponent who doesn't, that player loses 2 life and you draw a card.",
+            AbilityKind::Spell,
+        );
+        // Root: the controller's optional sacrifice.
+        assert!(matches!(*def.effect, Effect::Sacrifice { .. }));
+        let sac_opponent = def
+            .sub_ability
+            .as_ref()
+            .expect("controller sacrifice chains to the each-opponent sacrifice");
+        assert!(matches!(*sac_opponent.effect, Effect::Sacrifice { .. }));
+        assert_eq!(sac_opponent.condition, Some(AbilityCondition::IfYouDo));
+        assert_eq!(
+            sac_opponent.player_scope,
+            Some(PlayerFilter::Opponent),
+            "the each-opponent sacrifice iterates per opponent"
+        );
+
+        // Decline body head: LoseLife, gated on Not{IfYouDo}, ContinuationStep.
+        let lose_life = sac_opponent
+            .sub_ability
+            .as_ref()
+            .expect("the each-opponent sacrifice chains to the decline body");
+        assert_eq!(
+            lose_life.condition,
+            Some(AbilityCondition::Not {
+                condition: Box::new(AbilityCondition::IfYouDo)
+            }),
+            "the decline body runs only for an opponent who did NOT sacrifice"
+        );
+        assert_eq!(lose_life.sub_link, SubAbilityLink::ContinuationStep);
+        assert_eq!(
+            lose_life.player_scope, None,
+            "the body inherits player_scope from the parent — it does not set its own"
+        );
+        match &*lose_life.effect {
+            Effect::LoseLife { target, .. } => assert_eq!(
+                target.as_ref(),
+                Some(&TargetFilter::ScopedPlayer),
+                "\"that player\" is the scoped declining opponent"
+            ),
+            other => panic!("expected LoseLife, got {other:?}"),
+        }
+
+        // Decline body tail: Draw → the printed controller.
+        let draw = lose_life
+            .sub_ability
+            .as_ref()
+            .expect("the life loss chains to the draw");
+        assert_eq!(draw.sub_link, SubAbilityLink::ContinuationStep);
+        match &*draw.effect {
+            Effect::Draw { target, .. } => assert_eq!(
+                target,
+                &TargetFilter::OriginalController,
+                "\"you draw a card\" is Braids' printed controller"
+            ),
+            other => panic!("expected Draw, got {other:?}"),
+        }
     }
 
     #[test]

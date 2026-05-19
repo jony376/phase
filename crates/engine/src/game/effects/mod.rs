@@ -710,6 +710,14 @@ pub(super) fn resolve_optional_effect_decision(
             if let Some(branch) = decline_branch {
                 let mut resolved = branch.as_ref().clone();
                 resolved.context = ability.context.clone();
+                // CR 608.2c: This optional effect was DECLINED — the decline
+                // branch's `Not{IfYouDo}` / `IfYouDo` gate must evaluate
+                // relative to *this* decision, not a stale `true` inherited
+                // from an enclosing optional effect that was accepted (e.g.
+                // Braids: the controller accepted the outer sacrifice, so the
+                // chain context carries `optional_effect_performed = true` —
+                // but each opponent's own decline must read `false`).
+                resolved.context.optional_effect_performed = false;
                 resolve_ability_chain(state, &resolved, events, depth)?;
             }
         }
@@ -853,17 +861,27 @@ fn is_player_scope_local_continuation(parent: &Effect, child: &Effect) -> bool {
     )
 }
 
-/// CR 109.5 + CR 115.10: Detect that an effect's recipient is bound to the
-/// surrounding `player_scope` iteration — either `OriginalController` (CR
-/// 109.5: the printed ability controller, fixed) or `ScopedPlayer` (CR
+/// CR 109.5 + CR 115.10 + CR 119.3: Detect that an effect's recipient is bound
+/// to the surrounding `player_scope` iteration — either `OriginalController`
+/// (CR 109.5: the printed ability controller, fixed) or `ScopedPlayer` (CR
 /// 115.10: the per-iteration acting player). Used to keep parser-distributed
-/// compound-subject chains inside the scoped template.
+/// chains inside the scoped template: compound-subject "you and that player
+/// each ..." distribution, and per-opponent decline-consequence bodies. A
+/// `ScopedPlayer`-recipient `LoseLife` is the same iteration-bound recipient
+/// class as `Draw`/`Discard`/`Mill`/`Token` — not a separate pattern.
 fn effect_has_iteration_bound_recipient(effect: &Effect) -> bool {
     let recipient = match effect {
         Effect::Token { owner, .. } => owner,
         Effect::Draw { target, .. }
         | Effect::Discard { target, .. }
         | Effect::Mill { target, .. } => target,
+        // CR 119.3 + CR 115.10: a directed LoseLife whose recipient is the
+        // scoped opponent or the printed controller is iteration-bound exactly
+        // like Draw/Discard/Mill — keep its continuation inside the scope.
+        Effect::LoseLife { target, .. } => match target.as_ref() {
+            Some(t) => t,
+            None => return false,
+        },
         _ => return false,
     };
     matches!(
@@ -876,7 +894,16 @@ fn detach_after_player_scope_local_chain(
     node: &mut ResolvedAbility,
 ) -> Option<Box<ResolvedAbility>> {
     let mut next = node.sub_ability.take()?;
-    if is_player_scope_local_continuation(&node.effect, &next.effect) {
+    // CR 115.10 + CR 608.2c: a decline-branch sub-ability whose own condition is
+    // a performed-gate (IfYouDo / IfAPlayerDoes / Not-wrapped / composite) is
+    // per-opponent by construction — its gate only has meaning relative to the
+    // scoped player's own optional decision. It must stay inside the scoped
+    // template, never detach as the unscoped tail.
+    let next_is_performed_gated = next
+        .condition
+        .as_ref()
+        .is_some_and(condition_depends_on_effect_performed);
+    if next_is_performed_gated || is_player_scope_local_continuation(&node.effect, &next.effect) {
         let tail = detach_after_player_scope_local_chain(&mut next);
         node.sub_ability = Some(next);
         tail
@@ -2013,6 +2040,13 @@ fn resolve_chain_body(
     events: &mut Vec<GameEvent>,
     depth: u32,
 ) -> Result<(), EffectError> {
+    // CR 608.2c: Snapshot whether a `pending_continuation` already existed at
+    // chain-body entry. An unrelated outer continuation (e.g. a `player_scope`
+    // iteration's remaining-opponent queue) must NOT cause this chain's own
+    // `sub_ability` link to be skipped — only a continuation installed by THIS
+    // effect's resolver accounts for the sub. Consulted by the sub_ability
+    // guard further down (issue #491).
+    let pending_continuation_before = state.pending_continuation.is_some();
     // CR 608.2e: "Instead" kicker — check if a sub overrides the parent.
     // When condition is met, replace the current ability's effect with the sub's
     // effect, preserving the full resolution flow (tracked sets, continuations).
@@ -2987,7 +3021,17 @@ fn resolve_chain_body(
         // opening a choice (e.g. clash injects modified context for
         // optional_effect_performed), the sub_ability chain is already
         // accounted for — skip to avoid double execution.
-        if state.pending_continuation.is_some() && !waits_for_resolution_choice(&state.waiting_for)
+        //
+        // CR 608.2c: Only skip when THIS effect's resolution installed the
+        // continuation. A `pending_continuation` that already existed before
+        // the effect resolved belongs to an unrelated outer chain (e.g. a
+        // `player_scope` iteration's remaining-opponent queue) and does NOT
+        // account for this effect's own `sub_ability` — skipping then would
+        // silently drop the sub (issue #491: the `LoseLife→Draw` decline body
+        // would lose its `Draw` while another opponent's iteration is queued).
+        if state.pending_continuation.is_some()
+            && !pending_continuation_before
+            && !waits_for_resolution_choice(&state.waiting_for)
         {
             return Ok(());
         }
@@ -3707,6 +3751,81 @@ mod tests {
             handler: crate::types::ability::RuntimeHandler::NinjutsuFamily,
         };
         assert!(is_known_effect(&runtime));
+    }
+
+    /// CR 119.3 + CR 115.10: `effect_has_iteration_bound_recipient` must
+    /// classify a `LoseLife` whose recipient is `ScopedPlayer` /
+    /// `OriginalController` as iteration-bound — exactly like `Draw` / `Token`.
+    /// This keeps the `LoseLife→Draw` decline-consequence edge inside the
+    /// `player_scope` iteration (issue #491, Step 1b).
+    #[test]
+    fn lose_life_iteration_bound_recipient_classification() {
+        let lose_scoped = Effect::LoseLife {
+            amount: QuantityExpr::Fixed { value: 2 },
+            target: Some(TargetFilter::ScopedPlayer),
+        };
+        assert!(
+            effect_has_iteration_bound_recipient(&lose_scoped),
+            "LoseLife → ScopedPlayer is iteration-bound"
+        );
+
+        let lose_original = Effect::LoseLife {
+            amount: QuantityExpr::Fixed { value: 2 },
+            target: Some(TargetFilter::OriginalController),
+        };
+        assert!(
+            effect_has_iteration_bound_recipient(&lose_original),
+            "LoseLife → OriginalController is iteration-bound"
+        );
+
+        let lose_none = Effect::LoseLife {
+            amount: QuantityExpr::Fixed { value: 2 },
+            target: None,
+        };
+        assert!(
+            !effect_has_iteration_bound_recipient(&lose_none),
+            "an undirected LoseLife (target: None) is NOT iteration-bound"
+        );
+
+        let lose_non_iteration = Effect::LoseLife {
+            amount: QuantityExpr::Fixed { value: 2 },
+            target: Some(TargetFilter::TriggeringPlayer),
+        };
+        assert!(
+            !effect_has_iteration_bound_recipient(&lose_non_iteration),
+            "LoseLife → a non-iteration filter is NOT iteration-bound"
+        );
+
+        // Regression: the existing Draw / Token arms are unchanged.
+        let draw_scoped = Effect::Draw {
+            count: QuantityExpr::Fixed { value: 1 },
+            target: TargetFilter::ScopedPlayer,
+        };
+        assert!(effect_has_iteration_bound_recipient(&draw_scoped));
+        let token_original = Effect::Token {
+            name: "Treasure".to_string(),
+            power: PtValue::Fixed(0),
+            toughness: PtValue::Fixed(0),
+            types: vec!["Artifact".to_string()],
+            colors: vec![],
+            keywords: vec![],
+            tapped: false,
+            count: QuantityExpr::Fixed { value: 1 },
+            owner: TargetFilter::OriginalController,
+            attach_to: None,
+            enters_attacking: false,
+            supertypes: vec![],
+            static_abilities: vec![],
+            enter_with_counters: vec![],
+        };
+        assert!(effect_has_iteration_bound_recipient(&token_original));
+        // A non-recipient effect remains unclassified.
+        let damage = Effect::DealDamage {
+            amount: QuantityExpr::Fixed { value: 1 },
+            target: TargetFilter::Any,
+            damage_source: None,
+        };
+        assert!(!effect_has_iteration_bound_recipient(&damage));
     }
 
     #[test]

@@ -8,7 +8,14 @@ import { PrintingPickerModal } from "./PrintingPickerModal";
 import type { ParsedDeck, DeckEntry } from "../../services/deckParser";
 import { deduplicateEntries, resolveCommander } from "../../services/deckParser";
 import { evaluateDeckCompatibility, type DeckCompatibilityResult } from "../../services/deckCompatibility";
-import { STORAGE_KEY_PREFIX, loadSavedDeck, loadSavedDeckBracket, stampDeckMeta } from "../../constants/storage";
+import {
+  ACTIVE_DECK_KEY,
+  STORAGE_KEY_PREFIX,
+  loadSavedDeck,
+  loadSavedDeckBracket,
+  removeDeckMeta,
+  stampDeckMeta,
+} from "../../constants/storage";
 import { BASIC_LAND_NAMES, hasUnlimitedCopies } from "../../constants/game";
 import { loadPreconDeckMap } from "../../hooks/useDecks";
 import { preconDeckEntryToParsedDeck } from "../../services/preconDecks";
@@ -86,6 +93,7 @@ export function DeckBuilder({
   const [deckName, setDeckName] = useState("");
   const [bracket, setBracket] = useState<CommanderBracket | null>(null);
   const [savedDecks, setSavedDecks] = useState(listSavedDecks);
+  const [savedDeckName, setSavedDeckName] = useState<string | null>(null);
   const [justSaved, setJustSaved] = useState(false);
   const [commanders, setCommanders] = useState<string[]>([]);
   const [isDeckViewExpanded, setIsDeckViewExpanded] = useState(initialDeckName !== null);
@@ -324,8 +332,21 @@ export function DeckBuilder({
     const payload: Record<string, unknown> = { ...resolved, format };
     if (bracket !== null) payload.bracket = bracket;
     const data = JSON.stringify(payload);
-    localStorage.setItem(STORAGE_KEY_PREFIX + deckName.trim(), data);
-    stampDeckMeta(deckName.trim());
+    const nextName = deckName.trim();
+    if (
+      savedDeckName
+      && savedDeckName !== nextName
+      && localStorage.getItem(STORAGE_KEY_PREFIX + savedDeckName) !== null
+    ) {
+      localStorage.removeItem(STORAGE_KEY_PREFIX + savedDeckName);
+      removeDeckMeta(savedDeckName);
+      if (localStorage.getItem(ACTIVE_DECK_KEY) === savedDeckName) {
+        localStorage.setItem(ACTIVE_DECK_KEY, nextName);
+      }
+    }
+    localStorage.setItem(STORAGE_KEY_PREFIX + nextName, data);
+    stampDeckMeta(nextName);
+    setSavedDeckName(nextName);
     setSavedDecks(listSavedDecks());
     setJustSaved(true);
   };
@@ -349,6 +370,7 @@ export function DeckBuilder({
       applyDeckToEditor(resolved);
       setIsDeckViewExpanded(true);
       setDeckName(`${deckEntry.name} (${deckEntry.code})`);
+      setSavedDeckName(null);
       setBracket(getPreconBracket(deckId) ?? null);
       return;
     }
@@ -365,6 +387,7 @@ export function DeckBuilder({
       onFormatChange("Commander");
     }
     setDeckName(name);
+    setSavedDeckName(name);
     setBracket(loadSavedDeckBracket(name));
   }, [applyDeckToEditor, onFormatChange]);
 

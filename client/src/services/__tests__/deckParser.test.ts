@@ -4,6 +4,7 @@ import {
   exportDeckFile,
   parseMtgaDeck,
   detectAndParseDeck,
+  deriveImportedDeckName,
   repairParsedDeck,
   resolveCommander,
   expandParsedDeck,
@@ -23,6 +24,30 @@ describe('deckParser', () => {
   it('parses "4x Lightning Bolt" format', () => {
     const result = parseDeckFile('4x Lightning Bolt');
     expect(result.main).toEqual([{ count: 4, name: 'Lightning Bolt' }]);
+  });
+
+  it('parses optional-x counts on MTGA printing lines', () => {
+    const content = `Commander
+1x Lagomos, Hand of Hatred (DMU) 205
+
+Deck
+9x Mountain (DMU) 280
+14x Swamp (DMU) 279`;
+    const result = detectAndParseDeck(content);
+
+    expect(result.commander).toEqual(['Lagomos, Hand of Hatred']);
+    expect(result.main).toEqual([
+      {
+        count: 9,
+        name: 'Mountain',
+        sourcePrinting: { setCode: 'dmu', collectorNumber: '280' },
+      },
+      {
+        count: 14,
+        name: 'Swamp',
+        sourcePrinting: { setCode: 'dmu', collectorNumber: '279' },
+      },
+    ]);
   });
 
   it('parses [Main] and [Sideboard] sections', () => {
@@ -433,6 +458,34 @@ describe('sourcePrinting capture', () => {
     expect(result.main).toHaveLength(1);
     expect(result.main[0].count).toBe(3);
     expect(result.main[0].sourcePrinting).toEqual({ setCode: 'fdn', collectorNumber: '123' });
+  });
+});
+
+describe('deriveImportedDeckName', () => {
+  it('uses a deck name declared in import metadata', () => {
+    const content = `About
+Name Lagomos Sacrifice Pauper Duel Commander
+
+Commander
+1x Lagomos, Hand of Hatred (DMU) 205`;
+    const deck = detectAndParseDeck(content);
+
+    expect(deriveImportedDeckName(content, deck)).toBe('Lagomos Sacrifice Pauper Duel Commander');
+  });
+
+  it('derives a default name from a commander when metadata has no name', () => {
+    const content = `Commander
+1x Lagomos, Hand of Hatred (DMU) 205`;
+    const deck = detectAndParseDeck(content);
+
+    expect(deriveImportedDeckName(content, deck)).toBe('Lagomos, Hand of Hatred Deck');
+  });
+
+  it('falls back to a generic imported deck name for nonempty non-commander lists', () => {
+    const content = '4 Lightning Bolt';
+    const deck = detectAndParseDeck(content);
+
+    expect(deriveImportedDeckName(content, deck)).toBe('Imported Deck');
   });
 });
 

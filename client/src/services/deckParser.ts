@@ -15,6 +15,8 @@ export interface ParsedDeck {
   companion?: string;
 }
 
+const DECK_NAME_LINE_PATTERN = /^(?:deck\s+name|name|title)\s*:?\s+(.+)$/i;
+
 /**
  * Flat deck shape consumed by the engine (`PlayerDeckList` in Rust) and by
  * `evaluate_deck_compatibility_js`. The single authority for projecting a
@@ -100,7 +102,7 @@ function parseDeckEntryLine(line: string): LineParseResult | null {
 
   remainder = remainder.replace(FOIL_INDICATOR_RE, "");
 
-  const mtgaMatch = remainder.match(/^(\d+)\s+(.+?)\s+\(([A-Z0-9]*)\)\s+(\S+)$/);
+  const mtgaMatch = remainder.match(/^(\d+)x?\s+(.+?)\s+\(([A-Z0-9]*)\)\s+(\S+)$/);
   if (mtgaMatch) {
     const setCode = mtgaMatch[3];
     const collectorNumber = mtgaMatch[4];
@@ -145,6 +147,40 @@ function normalizeEntries(entries: DeckEntry[]): DeckEntry[] {
 
 function totalCards(entries: DeckEntry[]): number {
   return entries.reduce((sum, entry) => sum + entry.count, 0);
+}
+
+function cleanDeckName(value: string): string {
+  return value
+    .trim()
+    .replace(/^["']|["']$/g, "")
+    .trim();
+}
+
+export function deriveImportedDeckName(content: string, deck: ParsedDeck): string {
+  for (const raw of content.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line || line.startsWith("#")) continue;
+
+    const match = line.match(DECK_NAME_LINE_PATTERN);
+    if (!match) continue;
+
+    const name = cleanDeckName(match[1]);
+    if (name) return name;
+  }
+
+  if (deck.commander?.length === 1) {
+    return `${deck.commander[0]} Deck`;
+  }
+
+  if (deck.commander?.length === 2) {
+    return `${deck.commander[0]} & ${deck.commander[1]} Deck`;
+  }
+
+  if (totalCards(deck.main) > 0 || totalCards(deck.sideboard) > 0) {
+    return "Imported Deck";
+  }
+
+  return "Untitled Deck";
 }
 
 function looksCommanderSingleton(entries: DeckEntry[]): boolean {
@@ -297,7 +333,7 @@ export function parseDeckFile(content: string): ParsedDeck {
 
 // MTGA format detection: count + name + (set) + collector#, with optional
 // trailing Archidekt category annotation (e.g. "[Commander {top}]").
-const MTGA_LINE_PATTERN = /^\d+\s+.+\s+\([A-Z0-9]*\)\s+\S+(\s+\S.*)?$/;
+const MTGA_LINE_PATTERN = /^\d+x?\s+.+\s+\([A-Z0-9]*\)\s+\S+(\s+\S.*)?$/;
 
 /**
  * Parse an MTGA text format deck.

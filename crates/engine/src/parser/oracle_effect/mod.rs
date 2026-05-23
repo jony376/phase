@@ -14833,7 +14833,7 @@ fn try_parse_distribute_counters(lower: &str, text: &str) -> Option<ParsedEffect
             Some(MultiTargetSpec::unlimited(1)),
         )
     } else {
-        (target_text, None)
+        strip_optional_target_prefix(target_text)
     };
     let (target, _) = parse_target(stripped_target);
 
@@ -22317,6 +22317,32 @@ mod tests {
                 } if *ct == CounterType::Plus1Plus1
             ),
             "Expected targeted PutCounter with multi_target, got {:?}",
+            clause.effect
+        );
+    }
+
+    #[test]
+    fn distribute_counters_among_up_to_two_target_creatures_is_multi_targeted() {
+        let clause = parse_effect_clause(
+            "distribute two +1/+1 counters among up to two target creatures",
+            &mut ParseContext::default(),
+        );
+
+        assert_eq!(clause.multi_target, Some(MultiTargetSpec::fixed(0, 2)));
+        assert_eq!(
+            clause.distribute,
+            Some(DistributionUnit::Counters("P1P1".to_string()))
+        );
+        assert!(
+            matches!(
+                clause.effect,
+                Effect::PutCounter {
+                    counter_type: CounterType::Plus1Plus1,
+                    count: QuantityExpr::Fixed { value: 2 },
+                    target: TargetFilter::Typed(_),
+                }
+            ),
+            "Expected distributed PutCounter with multi_target, got {:?}",
             clause.effect
         );
     }

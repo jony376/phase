@@ -1955,6 +1955,30 @@ fn effect_details(effect: &Effect) -> Vec<(String, String)> {
             d.push(("target".into(), fmt_target(target)));
             d.push(("scope".into(), format!("{scope:?}")));
         }
+        Effect::CreateDamageReplacement {
+            modification,
+            redirect_to,
+            combat_scope,
+            redirect_object_filter,
+            recipient_object_filter,
+            ..
+        } => {
+            if let Some(m) = modification {
+                d.push(("modification".into(), format!("{m:?}")));
+            }
+            if let Some(r) = redirect_to {
+                d.push(("redirect_to".into(), format!("{r:?}")));
+            }
+            if let Some(cs) = combat_scope {
+                d.push(("combat_scope".into(), format!("{cs:?}")));
+            }
+            if let Some(f) = redirect_object_filter {
+                d.push(("redirect_object_filter".into(), fmt_target(f)));
+            }
+            if let Some(f) = recipient_object_filter {
+                d.push(("recipient_object_filter".into(), fmt_target(f)));
+            }
+        }
         Effect::ChooseFromZone { count, zone, .. } => {
             d.push(("count".into(), count.to_string()));
             d.push(("zone".into(), fmt_zone(zone)));

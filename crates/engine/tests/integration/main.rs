@@ -50,6 +50,7 @@ mod hunters_insight_combat_draw;
 mod integration_adventure;
 mod integration_bending;
 mod integration_landfall;
+mod jace_wielder_empty_library_win;
 mod json_smoke_test;
 mod kaito_integration;
 mod leyline_taps_for_mana_repro;

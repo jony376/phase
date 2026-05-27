@@ -2987,6 +2987,19 @@ pub(crate) fn check_trigger_condition(
                 .and_then(|id| state.objects.get(&id))
                 .is_some_and(|obj| obj.cast_from_zone.is_some())
         }
+        // CR 305.1 + CR 603.4: "without being played" is encoded as
+        // `Not(WasPlayed)` and checks the triggering zone-change object first.
+        TriggerCondition::WasPlayed => {
+            let checked_id = trigger_event
+                .and_then(|e| match e {
+                    GameEvent::ZoneChanged { object_id, .. } => Some(*object_id),
+                    _ => None,
+                })
+                .or(source_id);
+            checked_id
+                .and_then(|id| state.objects.get(&id))
+                .is_some_and(|obj| obj.played_from_zone.is_some())
+        }
         // CR 603.4 + CR 702.33d-f: "if it was kicked" intervening-if.
         // ETB/LTB trigger conditions refer to the triggering zone-change
         // object; self-referential triggers fall back to the trigger source.
@@ -3842,6 +3855,57 @@ pub mod tests {
         assert!(check_trigger_condition(
             &state,
             &TriggerCondition::ActivatedAbilityIsNonMana,
+            PlayerId(0),
+            None,
+            Some(&event),
+        ));
+    }
+
+    #[test]
+    fn was_played_condition_checks_zone_change_object_play_provenance() {
+        let mut state = setup();
+        let land = create_object(
+            &mut state,
+            CardId(10),
+            PlayerId(1),
+            "Test Plains".to_string(),
+            Zone::Battlefield,
+        );
+        let obj = state.objects.get_mut(&land).unwrap();
+        obj.card_types.core_types.push(CoreType::Land);
+        obj.played_from_zone = Some(Zone::Hand);
+
+        let event = GameEvent::ZoneChanged {
+            object_id: land,
+            from: Some(Zone::Hand),
+            to: Zone::Battlefield,
+            record: Box::new(ZoneChangeRecord::test_minimal(
+                land,
+                Some(Zone::Hand),
+                Zone::Battlefield,
+            )),
+        };
+        assert!(check_trigger_condition(
+            &state,
+            &TriggerCondition::WasPlayed,
+            PlayerId(0),
+            None,
+            Some(&event),
+        ));
+        assert!(!check_trigger_condition(
+            &state,
+            &TriggerCondition::Not {
+                condition: Box::new(TriggerCondition::WasPlayed),
+            },
+            PlayerId(0),
+            None,
+            Some(&event),
+        ));
+
+        state.objects.get_mut(&land).unwrap().played_from_zone = None;
+        assert!(!check_trigger_condition(
+            &state,
+            &TriggerCondition::WasPlayed,
             PlayerId(0),
             None,
             Some(&event),

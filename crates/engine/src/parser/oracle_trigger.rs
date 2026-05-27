@@ -4452,6 +4452,15 @@ fn add_controller(filter: TargetFilter, controller: ControllerRef) -> TargetFilt
                 .map(|filter| add_controller(filter, controller.clone()))
                 .collect(),
         },
+        TargetFilter::And { filters } => TargetFilter::And {
+            filters: filters
+                .into_iter()
+                .map(|filter| add_controller(filter, controller.clone()))
+                .collect(),
+        },
+        TargetFilter::Not { filter } => TargetFilter::Not {
+            filter: Box::new(add_controller(*filter, controller)),
+        },
         other => other,
     }
 }
@@ -4600,6 +4609,33 @@ fn parse_enters_tapped_state_rider(input: &str) -> Option<TriggerCondition> {
     } else {
         TriggerCondition::ZoneChangeObjectIsTapped
     })
+}
+
+fn parse_enters_control_rider(input: &str) -> Option<ControllerRef> {
+    scan_preceded(input, |input| {
+        preceded(
+            tag::<_, _, OracleError<'_>>("under "),
+            alt((
+                value(ControllerRef::You, tag("your control")),
+                value(ControllerRef::Opponent, tag("an opponent's control")),
+                value(ControllerRef::Opponent, tag("opponent's control")),
+            )),
+        )
+        .parse(input)
+    })
+    .map(|(_, controller, _)| controller)
+}
+
+fn append_trigger_condition(
+    existing: Option<TriggerCondition>,
+    condition: TriggerCondition,
+) -> TriggerCondition {
+    match existing {
+        Some(existing) => TriggerCondition::And {
+            conditions: vec![existing, condition],
+        },
+        None => condition,
+    }
 }
 
 /// CR 701.17a: Parse the milled-card filter from the predicate tail of an
@@ -4761,6 +4797,17 @@ fn try_parse_event(
             def.destination = None;
         }
 
+        if let Some(controller) = parse_enters_control_rider(after_enter) {
+            if let Some(valid_card) = def.valid_card.take() {
+                def.valid_card = Some(add_controller(valid_card, controller.clone()));
+            }
+            for clause in &mut def.zone_change_clauses {
+                if let Some(valid_card) = clause.valid_card.take() {
+                    clause.valid_card = Some(add_controller(valid_card, controller.clone()));
+                }
+            }
+        }
+
         // CR 603.6a + CR 110.5b: "enters untapped" / "enters tapped" — conditional
         // ETB trigger gated on the *entering* permanent's tapped state at
         // trigger-check time. The tapped-state check examines the object after
@@ -4771,7 +4818,19 @@ fn try_parse_event(
         // triggering zone-change event, which by then reflects the
         // post-replacement state.
         if let Some(cond) = parse_enters_tapped_state_rider(after_enter) {
-            def.condition = Some(cond);
+            def.condition = Some(append_trigger_condition(def.condition.take(), cond));
+        }
+
+        // CR 305.1 + CR 603.4: "without being played" distinguishes lands put
+        // onto the battlefield by effects from normal land plays. Track it as a
+        // negated land-play provenance condition on the entering object.
+        if scan_contains(after_enter, "without being played") {
+            def.condition = Some(append_trigger_condition(
+                def.condition.take(),
+                TriggerCondition::Not {
+                    condition: Box::new(TriggerCondition::WasPlayed),
+                },
+            ));
         }
 
         return Some((TriggerMode::ChangesZone, def));
@@ -9780,6 +9839,27 @@ mod tests {
             })
         );
         assert!(def.execute.is_some());
+    }
+
+    #[test]
+    fn trigger_lands_enter_without_being_played_attaches_not_was_played() {
+        let def = parse_trigger_line(
+            "Whenever one or more lands enter under an opponent's control without being played, you may search your library for a Plains card, put it onto the battlefield tapped, then shuffle.",
+            "Deep Gnome Terramancer",
+        );
+        assert_eq!(def.mode, TriggerMode::ChangesZone);
+        assert_eq!(def.destination, Some(Zone::Battlefield));
+        let Some(TargetFilter::Typed(valid_card)) = &def.valid_card else {
+            panic!("expected Typed valid_card, got {:?}", def.valid_card);
+        };
+        assert_eq!(valid_card.controller, Some(ControllerRef::Opponent));
+        assert!(valid_card.type_filters.contains(&TypeFilter::Land));
+        assert_eq!(
+            def.condition,
+            Some(TriggerCondition::Not {
+                condition: Box::new(TriggerCondition::WasPlayed)
+            })
+        );
     }
 
     #[test]
@@ -19614,6 +19694,12 @@ mod tests {
             "Test Card",
         );
         assert_eq!(def.mode, TriggerMode::ChangesZone);
+        assert_eq!(
+            def.valid_card,
+            Some(TargetFilter::Typed(
+                TypedFilter::creature().controller(ControllerRef::You)
+            ))
+        );
         assert_eq!(
             def.condition,
             Some(TriggerCondition::Not {

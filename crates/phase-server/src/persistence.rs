@@ -94,19 +94,21 @@ impl GameDb {
     /// storage on long-running servers.
     pub fn delete_stale(&self, max_age_secs: u64) -> rusqlite::Result<usize> {
         let cutoff = now_epoch().saturating_sub(max_age_secs);
-        let conn = self.conn.lock().unwrap();
-        let mut deleted = conn.execute(
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+        let mut deleted = tx.execute(
             "DELETE FROM game_sessions WHERE updated_at < ?1",
             params![cutoff],
         )?;
-        deleted += conn.execute(
+        deleted += tx.execute(
             "DELETE FROM draft_sessions WHERE updated_at < ?1",
             params![cutoff],
         )?;
-        deleted += conn.execute(
+        deleted += tx.execute(
             "DELETE FROM p2p_draft_backups WHERE updated_at < ?1",
             params![cutoff],
         )?;
+        tx.commit()?;
         Ok(deleted)
     }
 

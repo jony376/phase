@@ -3716,6 +3716,14 @@ async fn handle_client_message(
                 let current_players = session.current_player_count();
                 let max_players = session.player_count;
                 persist_session_async(game_db, &game_code, session);
+
+                // Keep the token-to-game index consistent: this seat mutation
+                // invalidated these tokens (kicked / replaced / removed seats),
+                // so they must stop resolving to this game via game_for_token.
+                // apply_seat_delta clears the per-seat token arrays but cannot
+                // reach the manager's index. (Game removal does the equivalent
+                // cleanup for whole-game teardown.)
+                mgr.unindex_tokens(&delta.invalidated_tokens);
                 (
                     slot_info,
                     kicked_players,

@@ -1184,6 +1184,26 @@ impl SessionManager {
         self.token_to_game.get(token).map(|s| s.as_str())
     }
 
+    /// Drop the given tokens from the token-to-game index.
+    ///
+    /// A seat mutation (kick, replace-with-AI, remove) invalidates the affected
+    /// seats' player tokens. `GameSession::apply_seat_delta` clears the per-seat
+    /// token arrays, but it cannot reach this index (which lives on the
+    /// manager), so without this the invalidated tokens keep resolving to the
+    /// game via [`game_for_token`] — a stale mapping that lets a kicked client's
+    /// token still point at a game it is no longer part of, and that is never
+    /// reclaimed. Callers pass `SeatDelta::invalidated_tokens` here right after
+    /// applying the delta. Empty strings (vacant seats) are skipped, never a
+    /// real index key. Mirrors the index cleanup done when a whole game is
+    /// removed from the manager.
+    pub fn unindex_tokens(&mut self, tokens: &[String]) {
+        for token in tokens {
+            if !token.is_empty() {
+                self.token_to_game.remove(token);
+            }
+        }
+    }
+
     /// Restore a pre-built session (e.g., from disk persistence).
     /// Registers all player tokens in the token-to-game index.
     pub fn restore_session(&mut self, session: GameSession) {
@@ -1306,6 +1326,24 @@ mod tests {
         let _ = mgr.join_game(&code, make_deck());
         let result = mgr.join_game(&code, make_deck());
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn unindex_tokens_removes_only_named_tokens() {
+        let mut mgr = SessionManager::new();
+        let (code, token1) = mgr.create_game(make_deck());
+        let (token2, _) = mgr.join_game(&code, make_deck()).unwrap();
+
+        assert_eq!(mgr.game_for_token(&token1), Some(code.as_str()));
+        assert_eq!(mgr.game_for_token(&token2), Some(code.as_str()));
+
+        // Simulate a seat mutation invalidating player 2's token (kick / replace
+        // / remove). An empty entry (vacant seat) in the list is ignored.
+        mgr.unindex_tokens(&[token2.clone(), String::new()]);
+
+        // The invalidated token no longer resolves; the surviving seat is intact.
+        assert_eq!(mgr.game_for_token(&token2), None);
+        assert_eq!(mgr.game_for_token(&token1), Some(code.as_str()));
     }
 
     #[test]

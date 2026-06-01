@@ -267,15 +267,17 @@ export function createPeerSession(
         //    already queued on recvQueue;
         //  - a throwing/rejecting handler is caught here instead of dropping an
         //    unhandled rejection or breaking the chain (matches onData).
-        recvQueue = recvQueue.then(async () => {
-          for (const msg of queued) {
-            try {
-              await handler(msg);
-            } catch (e) {
-              console.warn("[PeerSession] pending message handler threw:", e, msg.type);
+        recvQueue = recvQueue
+          .catch(() => {})
+          .then(async () => {
+            for (const msg of queued) {
+              try {
+                await handler(msg);
+              } catch (e) {
+                console.warn("[PeerSession] pending message handler threw:", e, msg.type);
+              }
             }
-          }
-        });
+          });
       }
 
       return () => {

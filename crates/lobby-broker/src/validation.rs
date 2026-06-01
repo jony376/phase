@@ -36,6 +36,11 @@ pub const MAX_TIMER_SECONDS: u32 = 86_400;
 pub const MAX_PLAYER_COUNT: u8 = 8;
 /// Max number of consumed-reservation tokens accepted in one metadata update.
 pub const MAX_CONSUMED_TOKENS: usize = 64;
+/// Max draft set-code length, in bytes. Real set codes are much shorter; this
+/// leaves room for the synthetic cube sentinel while rejecting stored junk.
+pub const MAX_DRAFT_SET_CODE_LEN: usize = 32;
+/// Max draft kind label length, in bytes.
+pub const MAX_DRAFT_KIND_LEN: usize = 32;
 
 /// Reject ASCII control characters (C0 range and DEL). They corrupt logs, lobby
 /// listings, and UI rendering and never belong in a name, code, or token.
@@ -112,6 +117,7 @@ pub fn validate_lobby_message(msg: &crate::protocol::LobbyClientMessage) -> Resu
             player_count,
             room_name,
             host_peer_id,
+            draft_metadata,
             ..
         } => {
             validate_required_label("display_name", display_name, MAX_DISPLAY_NAME_LEN)?;
@@ -127,6 +133,23 @@ pub fn validate_lobby_message(msg: &crate::protocol::LobbyClientMessage) -> Resu
                 if *secs > MAX_TIMER_SECONDS {
                     return Err(format!("timer_seconds must be at most {MAX_TIMER_SECONDS}"));
                 }
+            }
+            if let Some(draft) = draft_metadata {
+                validate_token(
+                    "draft_metadata.set_code",
+                    &draft.set_code,
+                    MAX_DRAFT_SET_CODE_LEN,
+                )?;
+                validate_token(
+                    "draft_metadata.draft_kind",
+                    &draft.draft_kind,
+                    MAX_DRAFT_KIND_LEN,
+                )?;
+                validate_optional_label(
+                    "draft_metadata.cube_name",
+                    &draft.cube_name,
+                    MAX_ROOM_NAME_LEN,
+                )?;
             }
         }
         M::JoinGameWithPassword {
@@ -159,10 +182,24 @@ pub fn validate_lobby_message(msg: &crate::protocol::LobbyClientMessage) -> Resu
         }
         M::UpdateLobbyMetadata {
             game_code,
+            current_players,
+            max_players,
             consumed_reservation_tokens,
-            ..
         } => {
             validate_token("game_code", game_code, MAX_GAME_CODE_LEN)?;
+            if *max_players == 0 || *max_players > MAX_PLAYER_COUNT {
+                return Err(format!(
+                    "max_players must be between 1 and {MAX_PLAYER_COUNT}"
+                ));
+            }
+            if *current_players > MAX_PLAYER_COUNT {
+                return Err(format!(
+                    "current_players must be at most {MAX_PLAYER_COUNT}"
+                ));
+            }
+            if *current_players > *max_players {
+                return Err("current_players must not exceed max_players".to_string());
+            }
             if consumed_reservation_tokens.len() > MAX_CONSUMED_TOKENS {
                 return Err(format!(
                     "consumed_reservation_tokens must contain at most {MAX_CONSUMED_TOKENS} entries"
@@ -185,7 +222,7 @@ pub fn validate_lobby_message(msg: &crate::protocol::LobbyClientMessage) -> Resu
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::LobbyClientMessage as M;
+    use crate::protocol::{DraftLobbyMetadata, LobbyClientMessage as M};
     use engine::starter_decks::DeckData;
 
     fn empty_deck() -> DeckData {
@@ -281,12 +318,70 @@ mod tests {
     }
 
     #[test]
+    fn create_game_rejects_oversized_draft_metadata() {
+        let mut msg = create_with("Alice");
+        if let M::CreateGameWithSettings { draft_metadata, .. } = &mut msg {
+            *draft_metadata = Some(DraftLobbyMetadata {
+                set_code: "a".repeat(MAX_DRAFT_SET_CODE_LEN + 1),
+                draft_kind: "Quick".to_string(),
+                cube_name: None,
+            });
+        }
+        assert!(validate_lobby_message(&msg).is_err());
+
+        if let M::CreateGameWithSettings { draft_metadata, .. } = &mut msg {
+            *draft_metadata = Some(DraftLobbyMetadata {
+                set_code: "TDM".to_string(),
+                draft_kind: "d".repeat(MAX_DRAFT_KIND_LEN + 1),
+                cube_name: None,
+            });
+        }
+        assert!(validate_lobby_message(&msg).is_err());
+
+        if let M::CreateGameWithSettings { draft_metadata, .. } = &mut msg {
+            *draft_metadata = Some(DraftLobbyMetadata {
+                set_code: "custom-cube".to_string(),
+                draft_kind: "Cube".to_string(),
+                cube_name: Some("c".repeat(MAX_ROOM_NAME_LEN + 1)),
+            });
+        }
+        assert!(validate_lobby_message(&msg).is_err());
+    }
+
+    #[test]
     fn update_metadata_rejects_too_many_tokens() {
         let msg = M::UpdateLobbyMetadata {
             game_code: "ABC123".into(),
             current_players: 1,
             max_players: 2,
             consumed_reservation_tokens: vec![String::from("t"); MAX_CONSUMED_TOKENS + 1],
+        };
+        assert!(validate_lobby_message(&msg).is_err());
+    }
+
+    #[test]
+    fn update_metadata_rejects_out_of_range_players() {
+        let msg = M::UpdateLobbyMetadata {
+            game_code: "ABC123".into(),
+            current_players: 1,
+            max_players: MAX_PLAYER_COUNT + 1,
+            consumed_reservation_tokens: Vec::new(),
+        };
+        assert!(validate_lobby_message(&msg).is_err());
+
+        let msg = M::UpdateLobbyMetadata {
+            game_code: "ABC123".into(),
+            current_players: MAX_PLAYER_COUNT + 1,
+            max_players: MAX_PLAYER_COUNT,
+            consumed_reservation_tokens: Vec::new(),
+        };
+        assert!(validate_lobby_message(&msg).is_err());
+
+        let msg = M::UpdateLobbyMetadata {
+            game_code: "ABC123".into(),
+            current_players: 3,
+            max_players: 2,
+            consumed_reservation_tokens: Vec::new(),
         };
         assert!(validate_lobby_message(&msg).is_err());
     }

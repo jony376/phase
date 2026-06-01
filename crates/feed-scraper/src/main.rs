@@ -1,7 +1,10 @@
 mod feed;
 mod scrape;
 
-use std::path::PathBuf;
+use std::{
+    path::PathBuf,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use clap::Parser;
 use reqwest::blocking::Client;
@@ -121,7 +124,6 @@ fn capitalize(s: &str) -> String {
 
 /// Simple ISO 8601 timestamp (UTC date) without pulling in chrono.
 fn chrono_lite_now() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
     let secs = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("time went backwards")

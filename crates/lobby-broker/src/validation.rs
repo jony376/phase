@@ -125,9 +125,7 @@ pub fn validate_lobby_message(msg: &crate::protocol::LobbyClientMessage) -> Resu
             }
             if let Some(secs) = timer_seconds {
                 if *secs > MAX_TIMER_SECONDS {
-                    return Err(format!(
-                        "timer_seconds must be at most {MAX_TIMER_SECONDS}"
-                    ));
+                    return Err(format!("timer_seconds must be at most {MAX_TIMER_SECONDS}"));
                 }
             }
         }
@@ -234,9 +232,7 @@ mod tests {
         assert!(validate_optional_label("f", &Some(String::new()), MAX_ROOM_NAME_LEN).is_ok());
         assert!(validate_optional_label("f", &Some("  ".into()), MAX_ROOM_NAME_LEN).is_ok());
         assert!(validate_optional_label("f", &Some("Room".into()), MAX_ROOM_NAME_LEN).is_ok());
-        assert!(
-            validate_optional_label("f", &Some("r".repeat(41)), MAX_ROOM_NAME_LEN).is_err()
-        );
+        assert!(validate_optional_label("f", &Some("r".repeat(41)), MAX_ROOM_NAME_LEN).is_err());
     }
 
     #[test]

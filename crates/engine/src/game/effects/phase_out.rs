@@ -254,3 +254,66 @@ fn collect_phase_in_targets(
         })
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::game::zones::create_object;
+    use crate::types::card_type::CoreType;
+    use crate::types::identifiers::CardId;
+    use crate::types::zones::Zone;
+
+    fn add_creature(state: &mut GameState, owner: PlayerId, name: &str) -> ObjectId {
+        let id = create_object(
+            state,
+            CardId(state.next_object_id),
+            owner,
+            name.to_string(),
+            Zone::Battlefield,
+        );
+        state
+            .objects
+            .get_mut(&id)
+            .unwrap()
+            .card_types
+            .core_types
+            .push(CoreType::Creature);
+        id
+    }
+
+    /// CR 702.26b: A mass phase-in effect specifically mentioning phased-out
+    /// permanents must still honor the effect's object filter. Reverting
+    /// `collect_phase_in_targets` to return every phased-out battlefield object
+    /// phases in the opponent's creature and fails this regression.
+    #[test]
+    fn phase_in_mass_filter_only_returns_matching_phased_out_objects() {
+        let mut state = GameState::new_two_player(42);
+        let source = add_creature(&mut state, PlayerId(0), "Phase Source");
+        let mine = add_creature(&mut state, PlayerId(0), "Mine");
+        let theirs = add_creature(&mut state, PlayerId(1), "Theirs");
+
+        let mut events = Vec::new();
+        phase_out_object(&mut state, mine, PhaseOutCause::Directly, &mut events);
+        phase_out_object(&mut state, theirs, PhaseOutCause::Directly, &mut events);
+
+        let ability = ResolvedAbility::new(
+            Effect::PhaseIn {
+                target: TargetFilter::Typed(TypedFilter::creature().controller(ControllerRef::You)),
+            },
+            Vec::new(),
+            source,
+            PlayerId(0),
+        );
+
+        resolve_phase_in(&mut state, &ability, &mut events).unwrap();
+
+        assert!(
+            !state.objects[&mine].is_phased_out(),
+            "controller's matching phased-out creature must phase in"
+        );
+        assert!(
+            state.objects[&theirs].is_phased_out(),
+            "opponent's phased-out creature must remain phased out"
+        );
+    }
+}

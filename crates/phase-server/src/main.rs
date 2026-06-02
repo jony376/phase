@@ -31,6 +31,9 @@ use lobby_broker::{
 };
 use seat_reducer::types::{DeckChoice, DeckResolver, ReducerCtx};
 use server_core::draft_session::DraftSessionManager;
+use server_core::draft_wire_guard::{
+    guard_create_draft_with_settings, guard_join_draft_with_password, guard_reconnect_draft,
+};
 use server_core::lobby::RegisterGameRequest;
 use server_core::protocol::{
     build_commit, ClientMessage, ServerMessage, ServerMode, MIN_SUPPORTED_PROTOCOL,
@@ -703,7 +706,7 @@ async fn main() {
                 {
                     let mut mgr = bg_state.lock().await;
                     for game_code in &expired {
-                        mgr.sessions.remove(game_code);
+                        mgr.remove_game(game_code);
                     }
                 }
                 // Notify connected players and clean up persistence
@@ -747,7 +750,7 @@ async fn main() {
                 info!(count = expired_lobby.len(), "expiring stale lobby games");
                 let mut mgr = bg_state.lock().await;
                 for game_code in &expired_lobby {
-                    mgr.sessions.remove(game_code);
+                    mgr.remove_game(game_code);
                     if let Err(e) = bg_game_db.delete_session(game_code) {
                         error!(game = %game_code, error = %e, "failed to delete expired lobby session");
                     }
@@ -2581,6 +2584,29 @@ async fn handle_client_message(
                 return;
             }
 
+            if let Err(reason) = lobby_broker::guard_inbound(
+                &lobby_broker::LobbyClientMessage::CreateGameWithSettings {
+                    deck: deck.clone(),
+                    display_name: display_name.clone(),
+                    public,
+                    password: password.clone(),
+                    timer_seconds,
+                    player_count: requested_player_count,
+                    match_config,
+                    format_config: format_config.clone(),
+                    room_name: room_name.clone(),
+                    host_peer_id: None,
+                    draft_metadata: None,
+                    start_when_full,
+                },
+            ) {
+                let msg = ServerMessage::Error { message: reason };
+                if let Ok(json) = serde_json::to_string(&msg) {
+                    let _ = socket.send(Message::text(json)).await;
+                }
+                return;
+            }
+
             {
                 let mgr = state.lock().await;
                 if mgr.sessions.len() >= MAX_GAMES {
@@ -3227,6 +3253,22 @@ async fn handle_client_message(
                 return;
             }
 
+            if let Err(reason) = lobby_broker::guard_inbound(
+                &lobby_broker::LobbyClientMessage::JoinGameWithPassword {
+                    game_code: game_code.clone(),
+                    deck: deck.clone(),
+                    display_name: display_name.clone(),
+                    password: password.clone(),
+                    reservation_token: reservation_token.clone(),
+                },
+            ) {
+                let msg = ServerMessage::Error { message: reason };
+                if let Ok(json) = serde_json::to_string(&msg) {
+                    let _ = socket.send(Message::text(json)).await;
+                }
+                return;
+            }
+
             {
                 let lob_guard = lobby.lock().await;
                 let lob = lob_guard.lobby();
@@ -3560,7 +3602,7 @@ async fn handle_client_message(
             report_draft_game_over(draft_state, connections, &game_code, winner).await;
 
             let mut mgr = state.lock().await;
-            mgr.sessions.remove(&game_code);
+            mgr.remove_game(&game_code);
             delete_session_async(game_db, &game_code);
         }
 
@@ -3836,6 +3878,20 @@ async fn handle_client_message(
                 "CreateDraftWithSettings"
             );
 
+            if let Err(reason) = guard_create_draft_with_settings(
+                &display_name,
+                &set_code,
+                &password,
+                timer_seconds,
+                pod_size,
+            ) {
+                let msg = ServerMessage::DraftActionRejected { reason };
+                if let Ok(json) = serde_json::to_string(&msg) {
+                    let _ = socket.send(Message::text(json)).await;
+                }
+                return;
+            }
+
             if !draft_pools.contains_set(&set_code) {
                 let msg = ServerMessage::DraftActionRejected {
                     reason: format!("No draft pool data for set: {set_code}"),
@@ -3946,6 +4002,16 @@ async fn handle_client_message(
             password,
         } => {
             info!(draft = %draft_code, joiner = %display_name, "JoinDraftWithPassword");
+
+            if let Err(reason) =
+                guard_join_draft_with_password(&draft_code, &display_name, &password)
+            {
+                let msg = ServerMessage::DraftActionRejected { reason };
+                if let Ok(json) = serde_json::to_string(&msg) {
+                    let _ = socket.send(Message::text(json)).await;
+                }
+                return;
+            }
 
             let result = {
                 let mut mgr = draft_state.lock().await;
@@ -4117,6 +4183,14 @@ async fn handle_client_message(
             player_token,
         } => {
             info!(draft = %draft_code, "ReconnectDraft attempt");
+
+            if let Err(reason) = guard_reconnect_draft(&draft_code, &player_token) {
+                let msg = ServerMessage::DraftActionRejected { reason };
+                if let Ok(json) = serde_json::to_string(&msg) {
+                    let _ = socket.send(Message::text(json)).await;
+                }
+                return;
+            }
 
             let result = {
                 let mut mgr = draft_state.lock().await;

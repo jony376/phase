@@ -267,11 +267,16 @@ fn infer_colors(cards: &[DeckEntry]) -> Vec<String> {
             "Sacred Foundry" | "Stomping Ground" => add("R"),
             _ => {}
         }
-        // Second color for dual lands
+        // Second color for dual lands. Each shock land's off-color must differ
+        // from the primary color added above; the previous grouping gave Watery
+        // Grave (UB), Blood Crypt (BR), and Sacred Foundry (RW) a second color
+        // equal to their primary, so they only ever inferred one of their two
+        // colors.
         match entry.name.as_str() {
-            "Hallowed Fountain" | "Watery Grave" => add("U"),
-            "Steam Vents" | "Sacred Foundry" => add("R"),
-            "Blood Crypt" | "Godless Shrine" => add("B"),
+            "Sacred Foundry" => add("W"),
+            "Hallowed Fountain" => add("U"),
+            "Watery Grave" | "Godless Shrine" => add("B"),
+            "Steam Vents" | "Blood Crypt" => add("R"),
             "Breeding Pool" | "Temple Garden" | "Overgrown Tomb" | "Stomping Ground" => add("G"),
             _ => {}
         }
@@ -303,6 +308,43 @@ fn config_format_tag(document: &Html) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shock_lands_infer_both_of_their_colors() {
+        // Each Ravnica shock land is two-colored; inference must yield both.
+        // Watery Grave (UB), Blood Crypt (BR), and Sacred Foundry (RW)
+        // previously inferred only their primary color.
+        let cases: [(&str, [&str; 2]); 10] = [
+            ("Hallowed Fountain", ["W", "U"]),
+            ("Watery Grave", ["U", "B"]),
+            ("Blood Crypt", ["B", "R"]),
+            ("Sacred Foundry", ["R", "W"]),
+            ("Godless Shrine", ["W", "B"]),
+            ("Steam Vents", ["U", "R"]),
+            ("Stomping Ground", ["R", "G"]),
+            ("Breeding Pool", ["U", "G"]),
+            ("Temple Garden", ["W", "G"]),
+            ("Overgrown Tomb", ["B", "G"]),
+        ];
+        for (name, expected) in cases {
+            let cards = [DeckEntry {
+                count: 4,
+                name: name.to_string(),
+            }];
+            let colors = infer_colors(&cards);
+            assert_eq!(
+                colors.len(),
+                2,
+                "{name} should infer two colors, got {colors:?}"
+            );
+            for color in expected {
+                assert!(
+                    colors.iter().any(|c| c.as_str() == color),
+                    "{name} should infer {color}, got {colors:?}"
+                );
+            }
+        }
+    }
 
     #[test]
     fn companion_section_sets_name_and_stays_out_of_main() {

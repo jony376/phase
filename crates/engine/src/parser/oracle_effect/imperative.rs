@@ -5639,8 +5639,8 @@ pub(super) fn parse_imperative_family_ast(
             } else if let Some(effect) =
                 try_parse_gain_keyword(text).or_else(|| try_parse_gain_quoted_ability(text))
             {
-                // CR 702: keyword grant (CR 113.3 + CR 604.1: or quoted-ability
-                // grant). Checked BEFORE the life-gain branch because the bare
+                // CR 702.1b: keyword-ability grant (CR 113.3 + CR 604.1: or
+                // quoted-ability grant). Checked BEFORE the life-gain branch because the bare
                 // `scan_contains(lower, "life")` guard below also matches
                 // keywords whose name contains "life" — e.g. "gain lifelink",
                 // which otherwise misrouted to the numeric life-gain parser and
@@ -10221,7 +10221,7 @@ mod tests {
         else {
             panic!("expected GenericEffect, got something else");
         };
-        assert_eq!(duration, Some(Duration::UntilEndOfTurn));
+        assert_eq!(duration.as_ref(), Some(&Duration::UntilEndOfTurn));
         let static_def = static_abilities
             .first()
             .expect("static_abilities must contain the granted modification");
@@ -10366,6 +10366,43 @@ mod tests {
                 ImperativeFamilyAst::Structured(ImperativeAst::Numeric(_))
             ),
             "expected numeric life-gain dispatch"
+        );
+    }
+
+    /// Production-path regression for the same lifelink/life substring
+    /// ambiguity, including default duration and SelfRef scope.
+    #[test]
+    fn effect_gain_lifelink_dispatches_to_keyword_grant() {
+        let def = crate::parser::oracle_effect::parse_effect_chain(
+            "gain lifelink until end of turn",
+            AbilityKind::Spell,
+        );
+        let Effect::GenericEffect {
+            static_abilities,
+            duration,
+            ..
+        } = &*def.effect
+        else {
+            panic!(
+                "expected GenericEffect for lifelink grant, got {:?}",
+                def.effect
+            );
+        };
+        assert_eq!(duration.as_ref(), Some(&Duration::UntilEndOfTurn));
+        assert_eq!(
+            static_abilities[0].affected,
+            Some(TargetFilter::SelfRef),
+            "bare creature-scoped keyword grant must remain SelfRef"
+        );
+        assert!(
+            static_abilities[0].modifications.iter().any(|m| matches!(
+                m,
+                ContinuousModification::AddKeyword {
+                    keyword: crate::types::keywords::Keyword::Lifelink
+                }
+            )),
+            "expected AddKeyword(Lifelink), got {:?}",
+            static_abilities[0].modifications
         );
     }
 

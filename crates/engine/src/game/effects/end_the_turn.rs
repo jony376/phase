@@ -1,4 +1,4 @@
-use crate::game::zones;
+use crate::game::effects::change_zone::{self, ZoneMoveResult};
 use crate::types::ability::{EffectError, EffectKind, ResolvedAbility};
 use crate::types::events::GameEvent;
 use crate::types::game_state::{GameState, StackEntryKind};
@@ -30,16 +30,38 @@ pub fn resolve(
     state.deferred_triggers.clear();
 
     // CR 724.1b: Exile every object on the stack. `resolve_top` already popped
-    // the end-the-turn source's own entry before invoking this resolver, so the
-    // source follows its normal post-resolution routing; here we exile every
-    // OTHER object still on the stack. Spell entries are card-backed and move to
-    // exile; ability entries (activated / triggered / keyword) aren't
-    // represented by cards, so dropping the stack entry is sufficient (they
-    // cease to exist at the next state-based-action check, CR 724.1b).
+    // the end-the-turn source's own entry before invoking this resolver; its
+    // post-resolution routing also uses CR 724.1b and sends that resolving
+    // object to exile. Here we exile every OTHER object still on the stack.
+    // Spell entries are card-backed and move to exile through the shared
+    // zone-change pipeline; ability entries (activated / triggered / keyword)
+    // aren't represented by cards, so dropping the stack entry is sufficient
+    // (they cease to exist at the next state-based-action check, CR 724.1b).
     while let Some(entry) = state.stack.pop_back() {
         state.stack_paid_facts.remove(&entry.id);
         if matches!(entry.kind, StackEntryKind::Spell { .. }) {
-            zones::move_to_zone(state, entry.id, Zone::Exile, events);
+            match change_zone::execute_zone_move(
+                state,
+                entry.id,
+                Zone::Stack,
+                Zone::Exile,
+                ability.source_id,
+                None,
+                false,
+                false,
+                None,
+                &[],
+                false,
+                events,
+            ) {
+                ZoneMoveResult::Done => {}
+                ZoneMoveResult::NeedsChoice(player) => {
+                    state.waiting_for =
+                        crate::game::replacement::replacement_choice_waiting_for(player, state);
+                    return Ok(());
+                }
+                ZoneMoveResult::NeedsAuraAttachmentChoice => return Ok(()),
+            }
         }
     }
 

@@ -5028,10 +5028,16 @@ pub(super) fn parse_imperative_family_ast(
     let first_word = lower.split_whitespace().next().unwrap_or("");
 
     // CR 724.1: "end the turn" (Time Stop, Sundial of the Infinite, Obeka,
-    // Glorious End, Discontinuity, Day's Undoing). A whole-phrase imperative
-    // with no target; intercept regardless of first_word (it can follow a
-    // "you may" optional wrapper).
-    if nom_primitives::scan_contains(lower, "end the turn") {
+    // Glorious End, Discontinuity, Day's Undoing). Whole-phrase imperative
+    // with no target; parse it as an anchored nom production rather than a
+    // substring scan so unrelated clauses cannot accidentally match it.
+    if all_consuming(terminated(
+        tag::<_, _, OracleError<'_>>("end the turn"),
+        opt(tag(".")),
+    ))
+    .parse(lower.trim())
+    .is_ok()
+    {
         return Some(ImperativeFamilyAst::GainKeyword(Effect::EndTheTurn));
     }
 

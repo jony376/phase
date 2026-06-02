@@ -253,32 +253,28 @@ fn infer_colors(cards: &[DeckEntry]) -> Vec<String> {
     };
 
     for entry in cards {
-        match entry.name.as_str() {
+        let inferred: &[&str] = match entry.name.as_str() {
             // Basic lands
-            "Plains" | "Snow-Covered Plains" => add("W"),
-            "Island" | "Snow-Covered Island" => add("U"),
-            "Swamp" | "Snow-Covered Swamp" => add("B"),
-            "Mountain" | "Snow-Covered Mountain" => add("R"),
-            "Forest" | "Snow-Covered Forest" => add("G"),
+            "Plains" | "Snow-Covered Plains" => &["W"],
+            "Island" | "Snow-Covered Island" => &["U"],
+            "Swamp" | "Snow-Covered Swamp" => &["B"],
+            "Mountain" | "Snow-Covered Mountain" => &["R"],
+            "Forest" | "Snow-Covered Forest" => &["G"],
             // Shock lands
-            "Hallowed Fountain" | "Temple Garden" | "Godless Shrine" => add("W"),
-            "Watery Grave" | "Steam Vents" | "Breeding Pool" => add("U"),
-            "Blood Crypt" | "Overgrown Tomb" => add("B"),
-            "Sacred Foundry" | "Stomping Ground" => add("R"),
-            _ => {}
-        }
-        // Second color for dual lands. Each shock land's off-color must differ
-        // from the primary color added above; the previous grouping gave Watery
-        // Grave (UB), Blood Crypt (BR), and Sacred Foundry (RW) a second color
-        // equal to their primary, so they only ever inferred one of their two
-        // colors.
-        match entry.name.as_str() {
-            "Sacred Foundry" => add("W"),
-            "Hallowed Fountain" => add("U"),
-            "Watery Grave" | "Godless Shrine" => add("B"),
-            "Steam Vents" | "Blood Crypt" => add("R"),
-            "Breeding Pool" | "Temple Garden" | "Overgrown Tomb" | "Stomping Ground" => add("G"),
-            _ => {}
+            "Hallowed Fountain" => &["W", "U"],
+            "Watery Grave" => &["U", "B"],
+            "Blood Crypt" => &["B", "R"],
+            "Sacred Foundry" => &["R", "W"],
+            "Godless Shrine" => &["W", "B"],
+            "Steam Vents" => &["U", "R"],
+            "Stomping Ground" => &["R", "G"],
+            "Breeding Pool" => &["U", "G"],
+            "Temple Garden" => &["W", "G"],
+            "Overgrown Tomb" => &["B", "G"],
+            _ => &[],
+        };
+        for color in inferred {
+            add(color);
         }
     }
     colors

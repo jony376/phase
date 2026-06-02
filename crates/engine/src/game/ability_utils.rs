@@ -1257,6 +1257,13 @@ fn collect_target_slots(
             .into_iter()
             .flatten()
         {
+            // CR 614.9: a `SelfRef` original-recipient ("...dealt to ~" — the
+            // en-Kor cycle) is the ability's own source, not a chosen target, so
+            // it surfaces no target slot. The resolver hosts the shield on the
+            // source directly.
+            if matches!(filter, TargetFilter::SelfRef) {
+                continue;
+            }
             let legal_targets =
                 legal_targets_for_ability_filter(state, ability, filter, &acc.slots);
             if legal_targets.is_empty() && !ability.optional_targeting {
@@ -2050,6 +2057,11 @@ fn collect_target_slot_specs(
             .into_iter()
             .flatten()
         {
+            // CR 614.9: mirror `collect_target_slots` — a `SelfRef` self
+            // recipient (en-Kor) surfaces no slot, so it gets no spec either.
+            if matches!(filter, TargetFilter::SelfRef) {
+                continue;
+            }
             specs.push(TargetSlotSpec {
                 filter: filter.clone(),
                 optional: ability.optional_targeting,

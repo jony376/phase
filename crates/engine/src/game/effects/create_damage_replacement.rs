@@ -130,12 +130,24 @@ pub fn resolve(
         shield = shield.combat_scope(scope);
     }
 
-    // CR 614.9: Jade Monolith's "to target creature" original recipient is a
-    // chosen target — the replacement fires only on damage to that specific
-    // permanent. Host the shield ON the chosen object with `valid_card: SelfRef`
-    // (mirrors `prevent_damage::resolve`'s host-on-target pattern) and capture
-    // its id for the host-selection step below.
-    let recipient_host = if recipient_object_filter.is_some() {
+    // CR 614.9: Decide where to host the shield and whether the original
+    // recipient consumed a declared object target slot. Hosting on an object
+    // with `valid_card: SelfRef` (set below) makes the shield fire only on
+    // damage to that object (mirrors `prevent_damage::resolve`'s host-on-target
+    // pattern).
+    //   * `Some(SelfRef)` ("...dealt to ~" — the en-Kor cycle): the recipient is
+    //     the ability's own source. Host on the source (`valid_card: SelfRef` is
+    //     set below) so the shield fires only on damage to it; it surfaces NO
+    //     target slot, so a `ChosenObjectTarget` redirect reads the FIRST object
+    //     target.
+    //   * `Some(other)` ("...dealt to target creature" — Jade Monolith): the
+    //     recipient is a chosen target object, consuming the first slot; the
+    //     redirect reads the SECOND.
+    let recipient_is_self = matches!(recipient_object_filter, Some(TargetFilter::SelfRef));
+    let recipient_consumes_slot = recipient_object_filter.is_some() && !recipient_is_self;
+    let recipient_host = if recipient_is_self {
+        Some(ability.source_id)
+    } else if recipient_object_filter.is_some() {
         chosen_target_object(ability, /*skip*/ 0)
     } else {
         None
@@ -165,7 +177,7 @@ pub fn resolve(
                 // The redirect target is the LAST declared object slot — the
                 // original-recipient slot (Jade Monolith) is declared first when
                 // both are present, though no single card has both today.
-                if let Some(id) = chosen_redirect_object(ability, recipient_host) {
+                if let Some(id) = chosen_redirect_object(ability, recipient_consumes_slot) {
                     shield = shield.redirect_target(TargetFilter::SpecificObject { id });
                 }
             }
@@ -229,14 +241,15 @@ fn chosen_target_object(ability: &ResolvedAbility, skip: usize) -> Option<Object
 }
 
 /// Return the object target slot for a `ChosenObjectTarget` redirect recipient.
-/// When the original recipient is also an object target (`recipient_host` is
-/// `Some`), the redirect slot is the *second* object target; otherwise it is the
-/// first.
+/// When the original recipient is itself a chosen target object (Jade Monolith —
+/// `recipient_consumed_slot` is `true`), the redirect slot is the *second*
+/// object target; otherwise (no recipient slot, or a self recipient like the
+/// en-Kor cycle) it is the first.
 fn chosen_redirect_object(
     ability: &ResolvedAbility,
-    recipient_host: Option<ObjectId>,
+    recipient_consumed_slot: bool,
 ) -> Option<ObjectId> {
-    let skip = if recipient_host.is_some() { 1 } else { 0 };
+    let skip = if recipient_consumed_slot { 1 } else { 0 };
     chosen_target_object(ability, skip)
 }
 
@@ -438,6 +451,97 @@ mod tests {
         assert!(
             state.objects.get(&source).unwrap().replacement_definitions[0].is_consumed,
             "redirection one-shot must be consumed after one use"
+        );
+    }
+
+    /// CR 614.9: The en-Kor cycle — "the next N damage that would be dealt to ~
+    /// this turn is dealt to target creature you control instead." The original
+    /// recipient is the source itself (`recipient_object_filter: SelfRef`), so the
+    /// shield is hosted on the source and fires on damage TO it; incoming damage
+    /// is redirected to the chosen creature.
+    #[test]
+    fn redirect_oneshot_self_recipient_redirects_incoming_damage_to_chosen() {
+        let mut state = GameState::new_two_player(42);
+        let en_kor = create_creature(&mut state, PlayerId(0), "Nomads en-Kor");
+        let chosen = create_creature(&mut state, PlayerId(0), "Chosen Creature");
+        let attacker = create_creature(&mut state, PlayerId(1), "Attacker");
+
+        let ability = ResolvedAbility::new(
+            Effect::CreateDamageReplacement {
+                source_filter: None,
+                combat_scope: None,
+                target_filter: None,
+                modification: None,
+                redirect_to: Some(DamageRedirectTarget::ChosenObjectTarget),
+                redirect_object_filter: Some(TargetFilter::Typed(
+                    crate::types::ability::TypedFilter::creature(),
+                )),
+                recipient_object_filter: Some(TargetFilter::SelfRef),
+            },
+            vec![TargetRef::Object(chosen)],
+            en_kor,
+            PlayerId(0),
+        );
+        let mut events = Vec::new();
+        resolve(&mut state, &ability, &mut events).unwrap();
+
+        // CR 614.9: the shield is hosted on the en-Kor source (recipient `~`),
+        // scoped to damage to it (valid_card SelfRef), redirecting to `chosen`.
+        let host = state.objects.get(&en_kor).unwrap();
+        assert_eq!(
+            host.replacement_definitions.len(),
+            1,
+            "shield is hosted on the source, not the redirect target"
+        );
+        let shield = &host.replacement_definitions[0];
+        assert!(matches!(
+            shield.shield_kind,
+            ShieldKind::Redirection {
+                recipient: DamageRedirectTarget::ChosenObjectTarget
+            }
+        ));
+        assert_eq!(shield.valid_card, Some(TargetFilter::SelfRef));
+        assert_eq!(
+            shield.redirect_target,
+            Some(TargetFilter::SpecificObject { id: chosen }),
+            "the chosen creature is captured as the redirect recipient"
+        );
+        assert!(
+            state
+                .objects
+                .get(&chosen)
+                .unwrap()
+                .replacement_definitions
+                .is_empty(),
+            "no shield is hosted on the redirect target"
+        );
+
+        // 3 damage from the attacker to the en-Kor creature is redirected to the
+        // chosen creature: en-Kor takes 0, chosen takes 3.
+        let ctx = deal_damage::DamageContext::from_source(&state, attacker).unwrap();
+        let mut events = Vec::new();
+        deal_damage::apply_damage_to_target(
+            &mut state,
+            &ctx,
+            TargetRef::Object(en_kor),
+            3,
+            false,
+            &mut events,
+        )
+        .unwrap();
+        assert_eq!(
+            state.objects.get(&en_kor).unwrap().damage_marked,
+            0,
+            "incoming damage is redirected away from the en-Kor creature"
+        );
+        assert_eq!(
+            state.objects.get(&chosen).unwrap().damage_marked,
+            3,
+            "the chosen creature receives the redirected damage"
+        );
+        assert!(
+            state.objects.get(&en_kor).unwrap().replacement_definitions[0].is_consumed,
+            "the one-shot is consumed after its single use"
         );
     }
 

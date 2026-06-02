@@ -3227,6 +3227,15 @@ fn parse_damage_modification_replacement(
 /// `tag("the next time ")` prefix combinator succeeding, never a string
 /// heuristic. Returns `None` (fall-through) when the prefix or grammar fails.
 pub(crate) fn parse_oneshot_damage_replacement(norm_lower: &str) -> Option<Effect> {
+    // CR 614.9: passive-voice one-shot redirection — "the next N damage that
+    // would be dealt to ~ this turn is dealt to <recipient> instead" (the en-Kor
+    // cycle). This "would be dealt to" (passive, recipient-first) spine is not
+    // covered by the active "the next time [source] would deal" grammar below,
+    // so try it first and fall through on mismatch.
+    if let Some(effect) = parse_oneshot_next_n_damage_to_self_redirect(norm_lower) {
+        return Some(effect);
+    }
+
     // CR 614.1a + CR 514.2: "the next time ... this turn" — a replacement effect
     // ("instead", CR 614.1a) with a "this turn" duration that ends at cleanup
     // (CR 514.2). The one-opportunity consumption is CR 614.5 (see resolver).
@@ -3325,6 +3334,60 @@ pub(crate) fn parse_oneshot_damage_replacement(norm_lower: &str) -> Option<Effec
     }
 
     None
+}
+
+/// CR 614.9 + CR 614.5: Parse the en-Kor cycle's one-shot redirection —
+/// "the next N damage that would be dealt to ~ this turn is dealt to target
+/// creature you control instead" (Nomads / Lancers / Outrider / Shaman / Spirit
+/// / Warrior en-Kor). The original recipient is the source itself (`~`), encoded
+/// as `recipient_object_filter: SelfRef`: the resolver hosts the shield on the
+/// source with `valid_card: SelfRef` so it fires only on damage to it, and the
+/// targeting layer surfaces no slot for the self recipient. The redirect
+/// recipient is a chosen object target ("target creature you control"). The
+/// amount N is consumed but not retained — the shield is a single-use one-shot
+/// (CR 614.5), matching the engine's existing "next damage" redirection model.
+fn parse_oneshot_next_n_damage_to_self_redirect(norm_lower: &str) -> Option<Effect> {
+    let (rest, _) = (
+        tag::<_, _, OracleError<'_>>("the next "),
+        nom_primitives::parse_number,
+        tag::<_, _, OracleError<'_>>(" damage that would be dealt to ~ this turn is dealt to "),
+    )
+        .parse(norm_lower)
+        .ok()?;
+
+    // CR 115.1: redirect recipient — "target creature you control" (every en-Kor
+    // card) or the looser "target creature"; both become a chosen object target.
+    let (rest, redirect_object_filter) = alt((
+        value(
+            inject_controller(
+                TargetFilter::Typed(TypedFilter::creature()),
+                ControllerRef::You,
+            ),
+            tag::<_, _, OracleError<'_>>("target creature you control"),
+        ),
+        value(
+            TargetFilter::Typed(TypedFilter::creature()),
+            tag("target creature"),
+        ),
+    ))
+    .parse(rest)
+    .ok()?;
+
+    let (rest, _) = tag::<_, _, OracleError<'_>>(" instead").parse(rest).ok()?;
+    let (rest, _) = opt(char::<_, OracleError<'_>>('.')).parse(rest).ok()?;
+    if !rest.trim().is_empty() {
+        return None;
+    }
+
+    Some(Effect::CreateDamageReplacement {
+        source_filter: None,
+        combat_scope: None,
+        target_filter: None,
+        modification: None,
+        redirect_to: Some(DamageRedirectTarget::ChosenObjectTarget),
+        redirect_object_filter: Some(redirect_object_filter),
+        recipient_object_filter: Some(TargetFilter::SelfRef),
+    })
 }
 
 /// Split the one-shot body at the "this turn[,]" boundary into the would-deal
@@ -10600,6 +10663,33 @@ mod snapshot_tests {
                 recipient_object_filter: None,
             } => {}
             other => panic!("expected redirect-to-target-creature, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn oneshot_en_kor_next_n_damage_to_self_redirect() {
+        // The en-Kor cycle (Nomads / Lancers / Outrider / Shaman / Spirit /
+        // Warrior en-Kor): passive "the next N damage that would be dealt to ~"
+        // — the recipient is the source itself — redirected to a chosen creature
+        // you control.
+        let effect = parse_oneshot_damage_replacement(
+            "the next 1 damage that would be dealt to ~ this turn is dealt to target creature you control instead",
+        )
+        .expect("must parse the en-Kor one-shot redirection");
+        match effect {
+            Effect::CreateDamageReplacement {
+                modification: None,
+                redirect_to: Some(DamageRedirectTarget::ChosenObjectTarget),
+                // CR 614.9: the recipient is the source itself (`~`), encoded as
+                // SelfRef so the resolver hosts the shield on the source.
+                recipient_object_filter: Some(TargetFilter::SelfRef),
+                // CR 115.1: "target creature you control" surfaces a redirect slot.
+                redirect_object_filter: Some(TargetFilter::Typed(_)),
+                source_filter: None,
+                combat_scope: None,
+                target_filter: None,
+            } => {}
+            other => panic!("expected en-Kor redirect-to-target, got {other:?}"),
         }
     }
 

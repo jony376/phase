@@ -2366,6 +2366,7 @@ fn effect_details(effect: &Effect) -> Vec<(String, String)> {
         | Effect::BecomeMonarch
         | Effect::Proliferate
         | Effect::EndTheTurn
+        | Effect::EndCombatPhase
         | Effect::SolveCase
         | Effect::Cleanup { .. }
         | Effect::AddRestriction { .. }
@@ -2403,7 +2404,8 @@ fn effect_details(effect: &Effect) -> Vec<(String, String)> {
         | Effect::AddPendingETBCounters { .. }
         | Effect::ChooseAndSacrificeRest { .. }
         | Effect::ChooseOneOf { .. }
-        | Effect::ReturnAsAura { .. } => {}
+        | Effect::ReturnAsAura { .. }
+        | Effect::Specialize => {}
     }
     d
 }

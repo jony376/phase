@@ -3290,6 +3290,7 @@ pub(crate) fn parse_oneshot_damage_replacement(norm_lower: &str) -> Option<Effec
             target_filter,
             modification: Some(modification),
             redirect_to: None,
+            redirect_amount: None,
             redirect_object_filter: None,
             recipient_object_filter,
         });
@@ -3309,6 +3310,7 @@ pub(crate) fn parse_oneshot_damage_replacement(norm_lower: &str) -> Option<Effec
             target_filter,
             modification: None,
             redirect_to: Some(redirect_to),
+            redirect_amount: None,
             redirect_object_filter,
             recipient_object_filter,
         });
@@ -3344,10 +3346,10 @@ pub(crate) fn parse_oneshot_damage_replacement(norm_lower: &str) -> Option<Effec
 /// source with `valid_card: SelfRef` so it fires only on damage to it, and the
 /// targeting layer surfaces no slot for the self recipient. The redirect
 /// recipient is a chosen object target ("target creature you control"). The
-/// amount N is consumed but not retained — the shield is a single-use one-shot
-/// (CR 614.5), matching the engine's existing "next damage" redirection model.
+/// amount N is retained as a depletion-style redirection cap so only that much
+/// damage is moved to the chosen recipient.
 fn parse_oneshot_next_n_damage_to_self_redirect(norm_lower: &str) -> Option<Effect> {
-    let (rest, _) = (
+    let (rest, (_, amount, _)) = (
         tag::<_, _, OracleError<'_>>("the next "),
         nom_primitives::parse_number,
         tag::<_, _, OracleError<'_>>(" damage that would be dealt to ~ this turn is dealt to "),
@@ -3385,6 +3387,7 @@ fn parse_oneshot_next_n_damage_to_self_redirect(norm_lower: &str) -> Option<Effe
         target_filter: None,
         modification: None,
         redirect_to: Some(DamageRedirectTarget::ChosenObjectTarget),
+        redirect_amount: Some(PreventionAmount::Next(amount)),
         redirect_object_filter: Some(redirect_object_filter),
         recipient_object_filter: Some(TargetFilter::SelfRef),
     })
@@ -10653,6 +10656,7 @@ mod snapshot_tests {
             Effect::CreateDamageReplacement {
                 modification: None,
                 redirect_to: Some(DamageRedirectTarget::ChosenObjectTarget),
+                redirect_amount: None,
                 source_filter: Some(TargetFilter::SelfRef),
                 combat_scope: Some(CombatDamageScope::CombatOnly),
                 target_filter: Some(DamageTargetFilter::Player { .. }),
@@ -10680,6 +10684,7 @@ mod snapshot_tests {
             Effect::CreateDamageReplacement {
                 modification: None,
                 redirect_to: Some(DamageRedirectTarget::ChosenObjectTarget),
+                redirect_amount: Some(PreventionAmount::Next(1)),
                 // CR 614.9: the recipient is the source itself (`~`), encoded as
                 // SelfRef so the resolver hosts the shield on the source.
                 recipient_object_filter: Some(TargetFilter::SelfRef),
@@ -10704,6 +10709,7 @@ mod snapshot_tests {
             Effect::CreateDamageReplacement {
                 modification: None,
                 redirect_to: Some(DamageRedirectTarget::SourceObject),
+                redirect_amount: None,
                 source_filter: Some(TargetFilter::ChosenDamageSource),
                 ..
             } => {}
@@ -10722,6 +10728,7 @@ mod snapshot_tests {
             Effect::CreateDamageReplacement {
                 modification: None,
                 redirect_to: Some(DamageRedirectTarget::Controller),
+                redirect_amount: None,
                 source_filter: Some(TargetFilter::ChosenDamageSource),
                 // CR 614.9: "would deal damage to target creature" — the
                 // protected creature is a chosen original-recipient target, not
@@ -10746,6 +10753,7 @@ mod snapshot_tests {
             Effect::CreateDamageReplacement {
                 modification: None,
                 redirect_to: Some(DamageRedirectTarget::Controller),
+                redirect_amount: None,
                 source_filter: Some(TargetFilter::SelfRef),
                 combat_scope: Some(CombatDamageScope::CombatOnly),
                 ..

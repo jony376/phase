@@ -784,6 +784,11 @@ fn parse_number_of_controlled_type(input: &str) -> OracleResult<'_, QuantityRef>
 /// evaluation time via `FilterProp::IsChosenCreatureType` (mirrors the existing
 /// "<type> you control of the chosen type" filter), so this covers every CDA in
 /// the class, not a single card.
+///
+/// Prefix variants such as "other"/"another"/"non-X"/"legendary" are
+/// intentionally out of scope for this global chosen-type CDA class; this mirrors
+/// the controlled chosen-type sibling below and avoids shadowing its controller
+/// suffix.
 fn parse_number_of_chosen_type_on_battlefield(input: &str) -> OracleResult<'_, QuantityRef> {
     let (rest, head) = parse_type_filter_word(input)?;
     let (rest, _) = alt((tag(" of the chosen type"), tag(" of that type"))).parse(rest)?;

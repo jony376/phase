@@ -2989,6 +2989,34 @@ fn static_tarmogoyf_cda() {
 }
 
 #[test]
+fn attacks_each_combat_unless_you_control_is_conditional_must_attack() {
+    // CR 508.1d + CR 604.1: Reckless Cohort — "attacks each combat if able
+    // unless you control another Ally" is a MustAttack rule-static gated by a
+    // negated control-presence condition (the requirement applies only while you
+    // do NOT control another Ally).
+    let def = parse_static_line(
+        "This creature attacks each combat if able unless you control another Ally.",
+    )
+    .unwrap();
+    assert_eq!(def.mode, StaticMode::MustAttack);
+    assert_eq!(def.affected, Some(TargetFilter::SelfRef));
+    assert!(
+        matches!(def.condition, Some(StaticCondition::Not { .. })),
+        "expected a negated control-presence condition, got {:?}",
+        def.condition
+    );
+}
+
+#[test]
+fn attacks_each_combat_if_able_unconditional_has_no_condition() {
+    // Regression: the plain rule-static (no "unless") still parses to an
+    // unconditional MustAttack.
+    let def = parse_static_line("This creature attacks each combat if able.").unwrap();
+    assert_eq!(def.mode, StaticMode::MustAttack);
+    assert!(def.condition.is_none());
+}
+
+#[test]
 fn static_unlicensed_hearse_counts_cards_exiled_with_it() {
     let def = parse_static_line(
             "Unlicensed Hearse's power and toughness are each equal to the number of cards exiled with it.",

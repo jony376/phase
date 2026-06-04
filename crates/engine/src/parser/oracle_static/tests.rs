@@ -3919,6 +3919,46 @@ fn static_legend_rule_routes_through_classifier() {
 }
 
 #[test]
+fn static_legend_rule_creature_tokens_scope() {
+    // CR 704.5j: The Master, Multiplied — "doesn't apply to creature tokens you control."
+    let def =
+        parse_static_line("The \"legend rule\" doesn't apply to creature tokens you control.")
+            .unwrap();
+    assert_eq!(def.mode, StaticMode::LegendRuleDoesntApply);
+    assert!(matches!(
+        def.affected,
+        Some(TargetFilter::Typed(TypedFilter {
+            controller: Some(ControllerRef::You),
+            properties,
+            ..
+        })) if properties.contains(&FilterProp::Token)
+    ));
+}
+
+#[test]
+fn static_cant_cause_sacrifice_or_exile_creature_tokens() {
+    // CR 603.2 + CR 609.3: The Master, Multiplied.
+    let def = parse_static_line(
+        "Triggered abilities you control can't cause you to sacrifice or exile creature tokens you control.",
+    )
+    .unwrap();
+    assert_eq!(
+        def.mode,
+        StaticMode::CantCauseSacrificeOrExile {
+            cause: ProhibitionScope::Controller,
+        }
+    );
+    assert!(matches!(
+        def.affected,
+        Some(TargetFilter::Typed(TypedFilter {
+            controller: Some(ControllerRef::You),
+            properties,
+            ..
+        })) if properties.contains(&FilterProp::Token)
+    ));
+}
+
+#[test]
 fn static_legend_rule_defers_unparseable_scopes() {
     // CR 704.5j: scopes this parser cannot resolve precisely, and conditional
     // forms, must NOT be emitted as a LegendRuleDoesntApply static — they are
@@ -5148,6 +5188,8 @@ fn exile_cast_permission_maralen_fae_ascendant() {
             frequency: CastFrequency::OncePerTurn,
             play_mode: CardPlayMode::Cast,
             cost: ExileCastCost::WithoutPayingManaCost,
+            pool: ExileCardPool::ThisTurn,
+            timing: ExileCastTiming::AnyTime,
         },
         "expected ExileCastPermission, got {:?}",
         def.mode
@@ -5191,6 +5233,8 @@ fn exile_cast_permission_during_each_of_your_turns_synonym() {
                 frequency: CastFrequency::OncePerTurn,
                 play_mode: CardPlayMode::Cast,
                 cost: ExileCastCost::WithoutPayingManaCost,
+                pool: ExileCardPool::ThisTurn,
+                timing: ExileCastTiming::AnyTime,
             }
         ),
         "expected ExileCastPermission(OncePerTurn, Cast, free), got {:?}",
@@ -5229,6 +5273,66 @@ fn exile_cast_permission_not_intercepted_by_graveyard_branch() {
     assert!(try_parse_exile_cast_permission(text, &lower).is_some());
 }
 
+/// CR 113.6b + CR 305.1 + CR 406.6 + CR 117.1c: The Matrix-of-Time persistent
+/// exile-play line lowers to `ExileCastPermission { pool: Persistent, play_mode:
+/// Play, frequency: Unlimited, timing: YourTurnOnly }` with `affected: Any`.
+#[test]
+fn persistent_exile_play_permission_matrix_form() {
+    let text =
+        "During your turn, you may play lands and cast spells from among cards exiled with ~.";
+    let def = parse_static_line(text).expect("Matrix-class static must parse");
+    assert_eq!(
+        def.mode,
+        StaticMode::ExileCastPermission {
+            frequency: CastFrequency::Unlimited,
+            play_mode: CardPlayMode::Play,
+            cost: ExileCastCost::PayNormalCost,
+            pool: ExileCardPool::Persistent,
+            timing: ExileCastTiming::YourTurnOnly,
+        },
+        "expected persistent your-turn Play permission, got {:?}",
+        def.mode
+    );
+    assert_eq!(
+        def.affected,
+        Some(TargetFilter::Any),
+        "the persistent pool is the scope; affected must be Any"
+    );
+}
+
+/// CR 601.3f + CR 305.1: The "you may look at cards exiled with ~, and you may
+/// play lands and cast spells from among those cards." variant lowers to the
+/// same persistent Play permission, but without the your-turn timing gate.
+#[test]
+fn persistent_exile_play_permission_look_at_variant() {
+    let text = "You may look at cards exiled with ~, and you may play lands and cast spells from among those cards.";
+    let def = parse_static_line(text).expect("look-at variant must parse");
+    assert_eq!(
+        def.mode,
+        StaticMode::ExileCastPermission {
+            frequency: CastFrequency::Unlimited,
+            play_mode: CardPlayMode::Play,
+            cost: ExileCastCost::PayNormalCost,
+            pool: ExileCardPool::Persistent,
+            timing: ExileCastTiming::AnyTime,
+        },
+        "expected persistent any-time Play permission, got {:?}",
+        def.mode
+    );
+}
+
+/// CR 113.6b: The persistent handler must NOT swallow the Maralen "this turn"
+/// per-turn-pool line — that belongs to `try_parse_exile_cast_permission`.
+#[test]
+fn persistent_exile_play_permission_rejects_maralen_this_turn() {
+    let text = "Once each turn, you may cast a spell from among cards exiled with ~ this turn.";
+    let lower = text.to_lowercase();
+    assert!(
+        try_parse_persistent_exile_play_permission(text, &lower).is_none(),
+        "the per-turn Maralen line must not match the persistent class"
+    );
+}
+
 #[test]
 fn graveyard_cast_permission_no_rider_leaves_filter_clean() {
     // Lurrus / Muldrotha / Karador / Conduit / Yawgmoth's Will regression:
@@ -5263,6 +5367,7 @@ fn hand_cast_free_omniscience() {
         def.mode,
         StaticMode::CastFromHandFree {
             frequency: CastFrequency::Unlimited,
+            origin: CastFreeOrigin::Hand,
         }
     );
     assert_eq!(def.affected, Some(TargetFilter::Any));
@@ -5286,6 +5391,7 @@ fn hand_cast_free_zaffai_once_per_turn() {
             def.mode,
             StaticMode::CastFromHandFree {
                 frequency: CastFrequency::OncePerTurn,
+                origin: CastFreeOrigin::Hand,
             }
         ),
         "expected CastFromHandFree {{ OncePerTurn }}, got: {:?}",
@@ -5316,7 +5422,8 @@ fn hand_cast_free_zaffai_not_intercepted_by_graveyard_branch() {
 
 // CR 601.2 + CR 118.9a: B10 Dracogenesis — Omniscience-class static with
 // the zone qualifier omitted ("you may cast Dragon spells without paying
-// their mana costs"). Implicit cast zone defaults to hand per CR 601.2.
+// their mana costs"). The mana-cost replacement applies from built-in cast
+// zones already authorized for that spell, including CR 903.8 command zone casts.
 #[test]
 fn cast_free_dracogenesis_no_zone_qualifier() {
     let text = "You may cast Dragon spells without paying their mana costs.";
@@ -5325,6 +5432,7 @@ fn cast_free_dracogenesis_no_zone_qualifier() {
         def.mode,
         StaticMode::CastFromHandFree {
             frequency: CastFrequency::Unlimited,
+            origin: CastFreeOrigin::DefaultCastPermission,
         }
     );
     // Dragon subtype filter must survive.
@@ -7334,6 +7442,30 @@ fn lands_you_control_are_plains_celestial_dawn() {
             assert_eq!(tf.controller, Some(ControllerRef::You));
         }
         _ => panic!("Expected Typed land filter with you-control"),
+    }
+}
+
+#[test]
+fn all_mountains_are_plains_conversion() {
+    // CR 305.7: Conversion / Glaciers — "All Mountains are Plains" sets every
+    // Mountain (any controller) to Plains via SetBasicLandType. Covers the
+    // "All <basic land type> are <type>" subject class.
+    let def = parse_static_line("All Mountains are Plains.").unwrap();
+    assert_eq!(def.mode, StaticMode::Continuous);
+    assert!(matches!(
+        def.modifications.as_slice(),
+        [ContinuousModification::SetBasicLandType { land_type }]
+        if *land_type == BasicLandType::Plains
+    ));
+    match &def.affected {
+        Some(TargetFilter::Typed(tf)) => {
+            assert!(tf.type_filters.contains(&TypeFilter::Land));
+            assert!(tf
+                .type_filters
+                .contains(&TypeFilter::Subtype("Mountain".to_string())));
+            assert_eq!(tf.controller, None, "battlefield-wide, any controller");
+        }
+        _ => panic!("Expected Typed land filter with Mountain subtype"),
     }
 }
 

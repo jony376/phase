@@ -225,6 +225,10 @@ impl KeywordTriggerInstaller {
             // one trigger is emitted per `Keyword::Soulshift(_)` on the face.
             Keyword::Soulshift(n) => vec![build_soulshift_trigger(*n)],
             Keyword::Annihilator(n) => vec![build_annihilator_trigger(*n)],
+            // CR 702.130a: Afflict N — becomes-blocked trigger making the
+            // defending player lose N life. CR 702.130b: each instance triggers
+            // separately, preserved by `install_matching`'s per-instance emission.
+            Keyword::Afflict(n) => vec![build_afflict_trigger(*n)],
             // CR 702.39a: Provoke — attacks trigger that may untap a creature the
             // defending player controls and force it to block this attacker.
             Keyword::Provoke => vec![build_provoke_trigger()],
@@ -290,6 +294,7 @@ impl KeywordTriggerInstaller {
             // Soulshift instances with differing N do not dedupe each other.
             Keyword::Soulshift(n) => is_soulshift_trigger_for_value(trigger, *n),
             Keyword::Annihilator(_) => is_annihilator_attack_trigger(trigger),
+            Keyword::Afflict(_) => is_afflict_becomes_blocked_trigger(trigger),
             Keyword::Provoke => is_provoke_attack_trigger(trigger),
             Keyword::Renown(_) => is_renown_trigger(trigger),
             Keyword::Mentor => is_mentor_trigger(trigger),
@@ -2940,6 +2945,17 @@ pub fn synthesize_annihilator(face: &mut CardFace) {
     KeywordTriggerInstaller::install_matching(face, |kw| matches!(kw, Keyword::Annihilator(_)));
 }
 
+/// CR 702.130a: Afflict N — a `BecomesBlocked` trigger (source = this creature)
+/// that makes the defending player lose N life. CR 702.130b: each instance of
+/// afflict triggers separately, so one trigger is synthesized per
+/// `Keyword::Afflict` via `install_matching`'s per-instance emission. The
+/// defending player is resolved per-attacker at resolution through
+/// `TargetFilter::DefendingPlayer` (CR 508.5 / 508.5a,
+/// `combat::defending_player_for_attacker`). See `build_afflict_trigger`.
+pub fn synthesize_afflict(face: &mut CardFace) {
+    KeywordTriggerInstaller::install_matching(face, |kw| matches!(kw, Keyword::Afflict(_)));
+}
+
 /// CR 702.39a: Provoke — an `Attacks` trigger (source = this creature) that may
 /// untap a creature the defending player controls and force it to block this
 /// creature this turn. One trigger is synthesized per `Keyword::Provoke`
@@ -3482,6 +3498,53 @@ fn build_annihilator_trigger(n: u32) -> TriggerDefinition {
             "CR 702.86a: Annihilator {n} — whenever ~ attacks, defending player sacrifices {n} permanent{}.",
             if n == 1 { "" } else { "s" }
         ))
+}
+
+/// CR 702.130a: Afflict N — a `BecomesBlocked` trigger (`valid_card: SelfRef`)
+/// whose execute body makes the defending player lose N life. The life loss
+/// targets `TargetFilter::DefendingPlayer`, which resolves per-attacker via
+/// `combat::defending_player_for_attacker` (CR 508.5 / 508.5a) — afflict fires
+/// on the block declaration regardless of whether the creature deals combat
+/// damage, so no source/target object plumbing beyond the defending player is
+/// needed. Mirrors `build_annihilator_trigger`'s defending-player shape.
+fn build_afflict_trigger(n: u32) -> TriggerDefinition {
+    let lose_life = Effect::LoseLife {
+        amount: QuantityExpr::Fixed { value: n as i32 },
+        target: Some(TargetFilter::DefendingPlayer),
+    };
+
+    let execute = AbilityDefinition::new(AbilityKind::Spell, lose_life)
+        .description(format!("Defending player loses {n} life"));
+
+    TriggerDefinition::new(TriggerMode::BecomesBlocked)
+        .valid_card(TargetFilter::SelfRef)
+        .execute(execute)
+        .description(format!(
+            "CR 702.130a: Afflict {n} — whenever ~ becomes blocked, defending player loses {n} life."
+        ))
+}
+
+/// Idempotency-shape predicate for `synthesize_afflict`. True iff `trigger` is
+/// the self-scoped `BecomesBlocked` trigger whose body is a `LoseLife` directed
+/// at `TargetFilter::DefendingPlayer`, so a granted-then-removed `Afflict`
+/// strips exactly its own trigger and a coincidental printed "Whenever ~
+/// becomes blocked, defending player loses life" trigger is never misclassified.
+fn is_afflict_becomes_blocked_trigger(t: &TriggerDefinition) -> bool {
+    if !matches!(t.mode, TriggerMode::BecomesBlocked)
+        || !matches!(t.valid_card, Some(TargetFilter::SelfRef))
+    {
+        return false;
+    }
+    let Some(execute) = t.execute.as_deref() else {
+        return false;
+    };
+    matches!(
+        &*execute.effect,
+        Effect::LoseLife {
+            target: Some(TargetFilter::DefendingPlayer),
+            ..
+        }
+    )
 }
 
 /// CR 702.39a: A Provoke trigger — a self-scoped (`valid_card: SelfRef`)
@@ -5847,6 +5910,11 @@ pub fn synthesize_all(face: &mut CardFace) {
     // separately. Defending player resolved per-attacker via
     // `ControllerRef::DefendingPlayer` (CR 508.5 / 508.5a).
     synthesize_annihilator(face);
+    // CR 702.130a: Afflict N — becomes-blocked trigger making the defending
+    // player lose N life. CR 702.130b: each instance triggers separately.
+    // Defending player resolved per-attacker via `TargetFilter::DefendingPlayer`
+    // (CR 508.5 / 508.5a).
+    synthesize_afflict(face);
     // CR 702.39a: Provoke — attacks trigger that may untap a creature the
     // defending player controls (CR 508.5 / 508.5a) and force it to block this
     // attacker (reusing the existing source-referential ForceBlock resolver).
@@ -9198,6 +9266,93 @@ mod annihilator_synthesis_tests {
             .filter_map(|t| match t.execute.as_deref().map(|a| &*a.effect) {
                 Some(Effect::Sacrifice {
                     count: QuantityExpr::Fixed { value },
+                    ..
+                }) => Some(*value),
+                _ => None,
+            })
+            .collect();
+        assert!(ns.contains(&1) && ns.contains(&3));
+    }
+
+    /// CR 702.130a: synthesizer emits a `BecomesBlocked` trigger whose execute
+    /// body is `Effect::LoseLife` directed at the defending player.
+    #[test]
+    fn synthesize_afflict_adds_becomes_blocked_trigger() {
+        let mut face = CardFace::default();
+        face.keywords.push(Keyword::Afflict(2));
+        synthesize_afflict(&mut face);
+
+        let trigger = face
+            .triggers
+            .iter()
+            .find(|t| matches!(t.mode, TriggerMode::BecomesBlocked))
+            .expect("afflict should add a BecomesBlocked trigger");
+
+        assert!(
+            matches!(trigger.valid_card, Some(TargetFilter::SelfRef)),
+            "valid_card must be SelfRef so the trigger fires only when this \
+             creature becomes blocked"
+        );
+
+        let Some(execute) = trigger.execute.as_deref() else {
+            panic!("execute body required");
+        };
+        let Effect::LoseLife { amount, target } = &*execute.effect else {
+            panic!("execute body must be Effect::LoseLife");
+        };
+        assert!(matches!(amount, QuantityExpr::Fixed { value: 2 }));
+        assert_eq!(
+            *target,
+            Some(TargetFilter::DefendingPlayer),
+            "life loss must be directed at the defending player (CR 508.5)"
+        );
+    }
+
+    /// Repeated synthesis must not duplicate the trigger (idempotency).
+    #[test]
+    fn synthesize_afflict_is_idempotent() {
+        let mut face = CardFace::default();
+        face.keywords.push(Keyword::Afflict(1));
+        synthesize_afflict(&mut face);
+        synthesize_afflict(&mut face);
+        let count = face
+            .triggers
+            .iter()
+            .filter(|t| is_afflict_becomes_blocked_trigger(t))
+            .count();
+        assert_eq!(count, 1, "afflict trigger should be deduped");
+    }
+
+    /// Cards without Afflict are unaffected.
+    #[test]
+    fn synthesize_afflict_is_noop_without_keyword() {
+        let mut face = CardFace::default();
+        face.keywords.push(Keyword::Menace);
+        synthesize_afflict(&mut face);
+        assert!(face.triggers.is_empty());
+    }
+
+    /// CR 702.130b: "If a creature has multiple instances of afflict, each
+    /// triggers separately." Two `Keyword::Afflict` entries synthesize two
+    /// distinct triggers with their respective N.
+    #[test]
+    fn synthesize_afflict_emits_one_trigger_per_instance() {
+        let mut face = CardFace::default();
+        face.keywords.push(Keyword::Afflict(1));
+        face.keywords.push(Keyword::Afflict(3));
+        synthesize_afflict(&mut face);
+        let triggers: Vec<_> = face
+            .triggers
+            .iter()
+            .filter(|t| is_afflict_becomes_blocked_trigger(t))
+            .collect();
+        assert_eq!(triggers.len(), 2);
+
+        let ns: Vec<i32> = triggers
+            .iter()
+            .filter_map(|t| match t.execute.as_deref().map(|a| &*a.effect) {
+                Some(Effect::LoseLife {
+                    amount: QuantityExpr::Fixed { value },
                     ..
                 }) => Some(*value),
                 _ => None,

@@ -822,8 +822,8 @@ fn parse_number_of_chosen_type_on_battlefield(input: &str) -> OracleResult<'_, Q
     ))
 }
 
-/// CR 604.3 + CR 700.4: Parse "<type> on the battlefield with <keyword>" after
-/// "the number of" → a battlefield-wide (any-controller) population count of
+/// CR 604.3: Parse "<type> on the battlefield with <keyword>" after "the
+/// number of" → a battlefield-wide (any-controller) population count of
 /// permanents of the given type that have the named keyword.
 ///
 /// Sibling of `parse_number_of_chosen_type_on_battlefield`: same global
@@ -837,9 +837,7 @@ fn parse_number_of_type_on_battlefield_with_keyword(input: &str) -> OracleResult
     let (rest, head) = parse_type_filter_word(input)?;
     let (rest, _) = tag(" on the battlefield with ").parse(rest)?;
     let (rest, keyword_name) = parse_keyword_name(rest)?;
-    let keyword: Keyword = keyword_name
-        .parse()
-        .map_err(|_| nom::Err::Error(nom::error::Error::new(input, nom::error::ErrorKind::Fail)))?;
+    let keyword: Keyword = keyword_name.parse().unwrap();
     Ok((
         rest,
         QuantityRef::ObjectCount {

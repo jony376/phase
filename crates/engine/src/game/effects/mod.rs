@@ -4978,6 +4978,7 @@ pub(crate) fn evaluate_condition(
         AbilityCondition::RevealedHasCardType {
             card_type,
             additional_filter,
+            subtype_filter,
         } => {
             let subject_id = state
                 .last_revealed_ids
@@ -4987,6 +4988,18 @@ pub(crate) fn evaluate_condition(
             let type_matches = subject_id
                 .map(|id| super::printed_cards::object_has_core_type(state, id, *card_type))
                 .unwrap_or(false);
+            // CR 205.3m: Match the revealed card's subtype against the subtype filter.
+            let subtype_matches = match subtype_filter.as_ref() {
+                None => true,
+                Some(filter) => subject_id.is_some_and(|id| {
+                    crate::game::filter::matches_target_filter(
+                        state,
+                        id,
+                        filter.as_ref(),
+                        &crate::game::filter::FilterContext::from_ability(ability),
+                    )
+                }),
+            };
             let filter_matches = match additional_filter {
                 // CR 205.3m: "of the chosen type" — check the revealed card's subtype
                 // against the source permanent's chosen creature type.
@@ -5011,7 +5024,7 @@ pub(crate) fn evaluate_condition(
                 }
                 None => true,
             };
-            type_matches && filter_matches
+            type_matches && subtype_matches && filter_matches
         }
         // CR 400.7 + CR 608.2c: source permanent entered the battlefield this turn.
         // For the "unless ~ entered this turn" sense, wrap with `Not`.
@@ -13314,6 +13327,7 @@ mod tests {
         let land_cond = AbilityCondition::RevealedHasCardType {
             card_type: CoreType::Land,
             additional_filter: None,
+            subtype_filter: None,
         };
 
         // Empty trackers — no reveal, no zone change: condition is false.
@@ -13413,6 +13427,7 @@ mod tests {
         .condition(AbilityCondition::RevealedHasCardType {
             card_type: CoreType::Land,
             additional_filter: None,
+            subtype_filter: None,
         });
         let ability = ResolvedAbility::new(
             Effect::ChangeZone {

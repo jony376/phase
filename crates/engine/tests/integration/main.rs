@@ -92,6 +92,7 @@ mod issue_2374_fblthp_library_origin;
 mod issue_2376_pyromancers_ascension;
 mod issue_2415_rottenmouth_viper_sacrifice_cost;
 mod issue_2417_satoru_intervening_if;
+mod issue_2418_timber_paladin;
 mod issue_2420_legend_rule_etb;
 mod issue_2421_mox_amber;
 mod issue_2422_demanding_dragon;

@@ -1371,6 +1371,54 @@ fn collect_pending_triggers(
             }
         }
 
+        // CR 603.10a: Abilities that trigger when a player sacrifices a permanent
+        // look back in time. An exploit ability emits `CreatureExploited` only
+        // after the sacrifice resolves (CR 702.110b), so a creature that exploits
+        // ITSELF has already left the battlefield when this event fires. Scan the
+        // exploiter with zone_filter=Battlefield (last-known information) so its
+        // own "when ~ exploits a creature" trigger still fires. Guarded to the
+        // off-battlefield case only: when the exploiter sacrificed a DIFFERENT
+        // creature it is still on the battlefield and the live scan + per-event
+        // dedup already cover it.
+        if let GameEvent::CreatureExploited { exploiter, .. } = event {
+            if state
+                .objects
+                .get(exploiter)
+                .is_some_and(|o| o.zone != Zone::Battlefield)
+            {
+                let matched_triggers = {
+                    let obj = &state.objects[exploiter];
+                    collect_matching_triggers(
+                        state,
+                        event,
+                        events,
+                        obj,
+                        obj.entered_battlefield_turn.unwrap_or(0),
+                        Some(Zone::Battlefield),
+                        &mut batched_this_pass,
+                        &mut registered_this_event,
+                    )
+                };
+                for matched in matched_triggers {
+                    record_trigger_fired(
+                        state,
+                        matched.constraint.as_ref(),
+                        *exploiter,
+                        matched.trig_idx,
+                        event,
+                    );
+                    if matched.batched {
+                        batched_this_pass.insert((*exploiter, matched.trig_idx));
+                    }
+                    registered_this_event.insert((*exploiter, matched.trig_idx));
+                    pending.push(PendingTriggerContext::batched(
+                        matched.pending,
+                        matched.trigger_events,
+                    ));
+                }
+            }
+        }
+
         // CR 603.10a (continued): an observer that left the battlefield in the
         // SAME simultaneous event as this departure observes it via last-known
         // information. The producer stamps that group onto `record.co_departed`
@@ -4938,6 +4986,13 @@ fn build_triggered_ability(
         if matches!(trig_def.mode, TriggerMode::Phase) {
             resolved.set_scoped_player_recursive(state.active_player);
         }
+        // CR 400.7: Capture the source's current incarnation so a self-reference
+        // ("sacrifice/exile this creature") resolves against the source only
+        // while it remains the same object. If the source is blinked between
+        // this trigger firing and its resolution, the re-entered permanent has a
+        // higher incarnation and the self-reference finds nothing.
+        resolved
+            .set_source_incarnation_recursive(state.objects.get(&source_id).map(|o| o.incarnation));
         resolved
     } else {
         // Trigger with no execute -- use Unimplemented as no-op marker
@@ -11928,6 +11983,92 @@ pub mod tests {
         assert_eq!(run(PlayerId(1), Phase::PreCombatMain), 0);
     }
 
+    // NOTE: The discriminating real-pipeline test for the `CreatureExploited` LKI
+    // look-back lives in `effects::exploit::tests::self_exploit_dependent_trigger_lands_on_stack`.
+    // That test drives the actual exploit resolution (real sacrifice → real zone
+    // change → real trigger collection), so it exercises CR 400.7 graveyard
+    // clearing faithfully. A previous unit test here manually set `obj.zone =
+    // Graveyard` while leaving the object's triggers/continuous effects intact,
+    // which masked the very clearing it claimed to cover (Gemini [MED]).
+
+    /// CR 702.110b control + CR 400.7 baseline: a self-referential "sacrifice
+    /// this creature" trigger that resolves while its source is still the same
+    /// object sacrifices that source. Drives the real pipeline: parse the trigger
+    /// → `build_triggered_ability` (captures the source incarnation) →
+    /// `resolve_ability_chain`.
+    #[test]
+    fn self_sacrifice_trigger_sacrifices_unblinked_source() {
+        let mut state = setup();
+        let creature = make_creature(&mut state, PlayerId(0), "Spark Elemental", 3, 1);
+        let trig_def = crate::parser::oracle_trigger::parse_trigger_line(
+            "At the beginning of the end step, sacrifice this creature.",
+            "Spark Elemental",
+        );
+        assert!(
+            trig_def.execute.is_some(),
+            "self-sacrifice trigger must parse an execute"
+        );
+        let ability = build_triggered_ability(&state, &trig_def, creature, PlayerId(0));
+        // CR 400.7: the incarnation captured at fire time matches the live object.
+        assert_eq!(
+            ability.source_incarnation,
+            Some(state.objects[&creature].incarnation)
+        );
+
+        let mut events = Vec::new();
+        crate::game::effects::resolve_ability_chain(&mut state, &ability, &mut events, 0).unwrap();
+
+        assert!(
+            state.players[0].graveyard.contains(&creature),
+            "an unblinked self-sacrifice sacrifices its source"
+        );
+    }
+
+    /// CR 400.7: A creature blinked between its self-sacrifice trigger firing and
+    /// that trigger resolving returns as a NEW object — the trigger's "sacrifice
+    /// this creature" must find nothing and the returned permanent survives.
+    /// Drives the real pipeline: `build_triggered_ability` captures the source's
+    /// incarnation, a real `move_to_zone` blink bumps it, and the incarnation
+    /// guard in `resolve_ability_chain` (sacrifice path) skips the new object.
+    /// Flips to a sacrificed source if the epoch guard is reverted.
+    #[test]
+    fn self_sacrifice_trigger_skips_blinked_source_via_incarnation() {
+        let mut state = setup();
+        let creature = make_creature(&mut state, PlayerId(0), "Spark Elemental", 3, 1);
+        let trig_def = crate::parser::oracle_trigger::parse_trigger_line(
+            "At the beginning of the end step, sacrifice this creature.",
+            "Spark Elemental",
+        );
+        let ability = build_triggered_ability(&state, &trig_def, creature, PlayerId(0));
+        let captured = ability.source_incarnation;
+
+        // Blink through the real zone pipeline: leave the battlefield, then return.
+        let mut blink_events = Vec::new();
+        crate::game::zones::move_to_zone(&mut state, creature, Zone::Exile, &mut blink_events);
+        crate::game::zones::move_to_zone(
+            &mut state,
+            creature,
+            Zone::Battlefield,
+            &mut blink_events,
+        );
+        // CR 400.7: the returned permanent is a new object (incarnation bumped).
+        assert_ne!(
+            Some(state.objects[&creature].incarnation),
+            captured,
+            "re-entry must bump the incarnation"
+        );
+
+        let mut events = Vec::new();
+        crate::game::effects::resolve_ability_chain(&mut state, &ability, &mut events, 0).unwrap();
+
+        assert_eq!(
+            state.objects[&creature].zone,
+            Zone::Battlefield,
+            "CR 400.7: the blinked source is a new object and is NOT sacrificed"
+        );
+        assert!(!state.players[0].graveyard.contains(&creature));
+    }
+
     /// CR 601.2h + CR 603.4: Increment intervening-if gates the counter-placement
     /// trigger on the amount of mana spent to cast the triggering spell exceeding
     /// either the source creature's power or its toughness. This is the regression
@@ -12642,10 +12783,12 @@ pub mod tests {
             GameEvent::TokenCreated {
                 object_id: tok1,
                 name: "Spirit".to_string(),
+                source_id: ObjectId(0),
             },
             GameEvent::TokenCreated {
                 object_id: tok2,
                 name: "Spirit".to_string(),
+                source_id: ObjectId(0),
             },
         ];
 
@@ -12809,6 +12952,7 @@ pub mod tests {
         let events = vec![GameEvent::TokenCreated {
             object_id: tok,
             name: "Treasure".to_string(),
+            source_id: ObjectId(0),
         }];
 
         process_triggers(&mut state, &events);
@@ -12843,6 +12987,7 @@ pub mod tests {
         let events = vec![GameEvent::TokenCreated {
             object_id: tok,
             name: "Zombie".to_string(),
+            source_id: ObjectId(0),
         }];
 
         process_triggers(&mut state, &events);

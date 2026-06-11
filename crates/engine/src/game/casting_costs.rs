@@ -5,6 +5,7 @@ use crate::types::ability::{
     AbilityKind, AdditionalCost, BeholdCostAction, CastTimingPermission, CostPaidObjectSnapshot,
     CounterCostSelection, Effect, KickerVariant, QuantityExpr, QuantityRef, ReplacementDefinition,
     ResolvedAbility, SpellCastingOptionKind, StaticCondition, TargetFilter, TypedFilter,
+    EXILE_COST_X,
 };
 use crate::types::events::{GameEvent, ManaTapState};
 use crate::types::game_state::{
@@ -1888,7 +1889,7 @@ pub(super) fn push_activated_ability_to_stack(
             // CR 602.2b + CR 601.2f + CR 122.1: Once X is announced for an
             // activation cost, the symbolic counter-removal cost becomes a
             // concrete count before payment removes counters.
-            concretized_cost = concretize_x_counter_removal_cost(cost, chosen_x);
+            concretized_cost = concretize_chosen_x_cost(cost, chosen_x);
             &concretized_cost
         } else {
             cost
@@ -1994,7 +1995,7 @@ pub(super) fn push_activated_ability_to_stack(
     push_ability_entry(state, player, source_id, ability_index, resolved, events)
 }
 
-fn concretize_x_counter_removal_cost(cost: &AbilityCost, chosen_x: u32) -> AbilityCost {
+fn concretize_chosen_x_cost(cost: &AbilityCost, chosen_x: u32) -> AbilityCost {
     match cost {
         AbilityCost::RemoveCounter {
             count,
@@ -2008,7 +2009,7 @@ fn concretize_x_counter_removal_cost(cost: &AbilityCost, chosen_x: u32) -> Abili
             selection: *selection,
         },
         AbilityCost::Exile {
-            count: u32::MAX,
+            count: EXILE_COST_X,
             zone: Some(Zone::Graveyard),
             filter,
         } => AbilityCost::Exile {
@@ -2019,7 +2020,7 @@ fn concretize_x_counter_removal_cost(cost: &AbilityCost, chosen_x: u32) -> Abili
         AbilityCost::Composite { costs } => AbilityCost::Composite {
             costs: costs
                 .iter()
-                .map(|cost| concretize_x_counter_removal_cost(cost, chosen_x))
+                .map(|cost| concretize_chosen_x_cost(cost, chosen_x))
                 .collect(),
         },
         _ => cost.clone(),
@@ -3118,7 +3119,7 @@ fn pay_additional_cost_with_source(
     }
 
     let cost = if let Some(chosen_x) = pending.ability.chosen_x {
-        concretize_x_counter_removal_cost(&cost, chosen_x)
+        concretize_chosen_x_cost(&cost, chosen_x)
     } else {
         cost
     };
@@ -3618,7 +3619,7 @@ fn additional_cost_x_max(
             )
         }
         AbilityCost::Exile {
-            count: u32::MAX,
+            count: EXILE_COST_X,
             zone: Some(Zone::Graveyard),
             filter,
             ..
@@ -6205,7 +6206,7 @@ pub fn enter_payment_step(
                 .map(|cost| (pending.as_ref().clone(), cost, chosen_x))
         });
         if let Some((mut pending, cost, chosen_x)) = targeted_counter_resume {
-            let concretized_cost = concretize_x_counter_removal_cost(&cost, chosen_x);
+            let concretized_cost = concretize_chosen_x_cost(&cost, chosen_x);
             let prompt_cost = targeted_remove_counter_choice_cost(&concretized_cost)
                 .unwrap_or_else(|| concretized_cost.clone());
             pending.activation_cost = Some(concretized_cost);
@@ -7247,7 +7248,7 @@ mod tests {
             );
         }
         let cost = AbilityCost::Exile {
-            count: u32::MAX,
+            count: EXILE_COST_X,
             zone: Some(Zone::Graveyard),
             filter: None,
         };
@@ -7308,7 +7309,7 @@ mod tests {
             &mut state,
             caster,
             AbilityCost::Exile {
-                count: u32::MAX,
+                count: EXILE_COST_X,
                 zone: Some(Zone::Graveyard),
                 filter: None,
             },

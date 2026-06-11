@@ -1135,7 +1135,7 @@ mod tests {
         assert_eq!(
             result,
             Some(AdditionalCost::Required(AbilityCost::Exile {
-                count: u32::MAX,
+                count: crate::types::ability::EXILE_COST_X,
                 zone: Some(crate::types::zones::Zone::Graveyard),
                 filter: None,
             }))

@@ -19,7 +19,7 @@ use super::oracle_util::parse_number;
 use super::oracle_util::TextPair;
 use crate::types::ability::{
     AbilityCost, BeholdCostAction, CostReduction, CounterCostSelection, FilterProp, PlayerScope,
-    QuantityExpr, QuantityRef, TargetFilter, TypedFilter, REMOVE_COUNTER_COST_ALL,
+    QuantityExpr, QuantityRef, TargetFilter, TypedFilter, EXILE_COST_X, REMOVE_COUNTER_COST_ALL,
     REMOVE_COUNTER_COST_ANY_NUMBER, REMOVE_COUNTER_COST_X,
 };
 use crate::types::counter::parse_counter_match;
@@ -575,7 +575,7 @@ pub fn parse_single_cost(text: &str) -> AbilityCost {
                 filter: None,
             };
         }
-        // CR 107.3a + CR 118.9: "Exile X card(s) from your graveyard" — variable
+        // CR 107.3a + CR 118.8: "Exile X card(s) from your graveyard" — variable
         // count announced during casting (Harvest Pyre). Ordered before the typed
         // `parse_type_phrase` arm, which cannot represent a bare zone with no filter.
         if let Some(((), rest_after_x)) =
@@ -595,13 +595,13 @@ pub fn parse_single_cost(text: &str) -> AbilityCost {
             .is_some()
             {
                 return AbilityCost::Exile {
-                    count: u32::MAX,
+                    count: EXILE_COST_X,
                     zone: Some(Zone::Graveyard),
                     filter: None,
                 };
             }
         }
-        // CR 118.9: "Exile N card(s) from your graveyard" without a type filter.
+        // CR 118.8: "Exile N card(s) from your graveyard" without a type filter.
         if let Some((count, after_count)) = parse_number(&rest_lower) {
             let after_count_lower = after_count.trim_start().to_lowercase();
             if nom_on_lower(after_count.trim_start(), &after_count_lower, |i| {
@@ -1539,7 +1539,7 @@ mod tests {
         assert_eq!(
             parse_oracle_cost("Exile X cards from your graveyard"),
             AbilityCost::Exile {
-                count: u32::MAX,
+                count: EXILE_COST_X,
                 zone: Some(Zone::Graveyard),
                 filter: None,
             }

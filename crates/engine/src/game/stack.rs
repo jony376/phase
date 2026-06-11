@@ -2993,7 +2993,8 @@ mod tests {
                     granted_to: None,
                     resolution_cleanup: None,
                     duration: None,
-                });
+                
+                exile_instead_of_graveyard_on_resolve: false});
         }
 
         // Should be immediately castable (no turn restriction)

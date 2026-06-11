@@ -1715,6 +1715,7 @@ pub(super) fn lower_targeted_action_ast(ast: TargetedImperativeAst) -> Effect {
                 granted_to: None,
                 resolution_cleanup: None,
                 duration: None,
+                exile_instead_of_graveyard_on_resolve: false,
             },
             target,
             grantee: Default::default(),

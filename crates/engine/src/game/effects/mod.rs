@@ -9508,7 +9508,8 @@ mod tests {
                         granted_to: None,
                         resolution_cleanup: None,
                         duration: None,
-                    },
+                    
+                    exile_instead_of_graveyard_on_resolve: false},
                     target: TargetFilter::TrackedSet {
                         id: TrackedSetId(0),
                     },
@@ -9599,7 +9600,8 @@ mod tests {
                         granted_to: None,
                         resolution_cleanup: None,
                         duration: None,
-                    },
+                    
+                    exile_instead_of_graveyard_on_resolve: false},
                     target: TargetFilter::TrackedSet {
                         id: TrackedSetId(0),
                     },
@@ -9664,7 +9666,8 @@ mod tests {
                     granted_to: None,
                     resolution_cleanup: None,
                     duration: None,
-                },
+                
+                exile_instead_of_graveyard_on_resolve: false},
                 target: TargetFilter::TrackedSet {
                     id: TrackedSetId(0),
                 },

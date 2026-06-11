@@ -575,6 +575,54 @@ pub fn parse_single_cost(text: &str) -> AbilityCost {
                 filter: None,
             };
         }
+        // CR 107.3a + CR 118.9: "Exile X card(s) from your graveyard" — variable
+        // count announced during casting (Harvest Pyre). Ordered before the typed
+        // `parse_type_phrase` arm, which cannot represent a bare zone with no filter.
+        if let Some(((), rest_after_x)) =
+            nom_on_lower(rest, &rest_lower, |i| value((), tag("x ")).parse(i))
+        {
+            let after_lower = rest_after_x.to_lowercase();
+            if nom_on_lower(rest_after_x, &after_lower, |i| {
+                value(
+                    (),
+                    alt((
+                        tag("card from your graveyard"),
+                        tag("cards from your graveyard"),
+                    )),
+                )
+                .parse(i)
+            })
+            .is_some()
+            {
+                return AbilityCost::Exile {
+                    count: u32::MAX,
+                    zone: Some(Zone::Graveyard),
+                    filter: None,
+                };
+            }
+        }
+        // CR 118.9: "Exile N card(s) from your graveyard" without a type filter.
+        if let Some((count, after_count)) = parse_number(&rest_lower) {
+            let after_count_lower = after_count.trim_start().to_lowercase();
+            if nom_on_lower(after_count.trim_start(), &after_count_lower, |i| {
+                value(
+                    (),
+                    alt((
+                        tag("card from your graveyard"),
+                        tag("cards from your graveyard"),
+                    )),
+                )
+                .parse(i)
+            })
+            .is_some()
+            {
+                return AbilityCost::Exile {
+                    count,
+                    zone: Some(Zone::Graveyard),
+                    filter: None,
+                };
+            }
+        }
         let count = parse_number(&rest_lower).map(|(n, _)| n).unwrap_or(1);
         let filter_start = parse_number(rest)
             .map(|(_, remaining)| remaining)
@@ -1484,6 +1532,30 @@ mod tests {
             }
             other => panic!("Expected Sacrifice, got {:?}", other),
         }
+    }
+
+    #[test]
+    fn cost_exile_x_cards_from_graveyard() {
+        assert_eq!(
+            parse_oracle_cost("Exile X cards from your graveyard"),
+            AbilityCost::Exile {
+                count: u32::MAX,
+                zone: Some(Zone::Graveyard),
+                filter: None,
+            }
+        );
+    }
+
+    #[test]
+    fn cost_exile_two_cards_from_graveyard() {
+        assert_eq!(
+            parse_oracle_cost("Exile two cards from your graveyard"),
+            AbilityCost::Exile {
+                count: 2,
+                zone: Some(Zone::Graveyard),
+                filter: None,
+            }
+        );
     }
 
     #[test]

@@ -2007,6 +2007,15 @@ fn concretize_x_counter_removal_cost(cost: &AbilityCost, chosen_x: u32) -> Abili
             target: target.clone(),
             selection: *selection,
         },
+        AbilityCost::Exile {
+            count: u32::MAX,
+            zone: Some(Zone::Graveyard),
+            filter,
+        } => AbilityCost::Exile {
+            count: chosen_x,
+            zone: Some(Zone::Graveyard),
+            filter: filter.clone(),
+        },
         AbilityCost::Composite { costs } => AbilityCost::Composite {
             costs: costs
                 .iter()
@@ -3108,6 +3117,12 @@ fn pay_additional_cost_with_source(
         }
     }
 
+    let cost = if let Some(chosen_x) = pending.ability.chosen_x {
+        concretize_x_counter_removal_cost(&cost, chosen_x)
+    } else {
+        cost
+    };
+
     match cost {
         AbilityCost::PayLife { amount } => {
             // CR 118.3 + CR 119.4 + CR 119.8: Pay life as an additional cost via
@@ -3600,6 +3615,27 @@ fn additional_cost_x_max(
                     .len()
                     .try_into()
                     .unwrap_or(u32::MAX),
+            )
+        }
+        AbilityCost::Exile {
+            count: u32::MAX,
+            zone: Some(Zone::Graveyard),
+            filter,
+            ..
+        } => {
+            // CR 601.2b: X in an additional graveyard-exile cost is announced
+            // before the exile payment (Harvest Pyre).
+            Some(
+                super::casting::find_eligible_exile_for_cost_targets(
+                    state,
+                    player,
+                    source_id,
+                    ExileCostSourceZone::Graveyard,
+                    filter.as_ref(),
+                )
+                .len()
+                .try_into()
+                .unwrap_or(u32::MAX),
             )
         }
         AbilityCost::RemoveCounter {
@@ -7189,6 +7225,114 @@ mod tests {
                     .description("Apply discard replacement".to_string()),
             );
         replacement_source
+    }
+
+    #[test]
+    fn graveyard_exile_additional_cost_x_max_is_eligible_graveyard_size() {
+        let mut state = GameState::new_two_player(42);
+        let source = create_object(
+            &mut state,
+            CardId(9_100),
+            PlayerId(0),
+            "Harvest Pyre".to_string(),
+            Zone::Hand,
+        );
+        for idx in 0..4 {
+            create_object(
+                &mut state,
+                CardId(9_110 + idx),
+                PlayerId(0),
+                format!("Graveyard filler {idx}"),
+                Zone::Graveyard,
+            );
+        }
+        let cost = AbilityCost::Exile {
+            count: u32::MAX,
+            zone: Some(Zone::Graveyard),
+            filter: None,
+        };
+        assert_eq!(
+            additional_cost_x_max(&state, PlayerId(0), source, &cost),
+            Some(4)
+        );
+    }
+
+    #[test]
+    fn graveyard_exile_additional_cost_concretizes_after_x_is_chosen() {
+        let mut state = GameState::new_two_player(42);
+        let caster = PlayerId(0);
+        let source = create_object(
+            &mut state,
+            CardId(9_200),
+            caster,
+            "Harvest Pyre".to_string(),
+            Zone::Hand,
+        );
+        let gy_cards: Vec<ObjectId> = (0..5)
+            .map(|idx| {
+                create_object(
+                    &mut state,
+                    CardId(9_210 + idx),
+                    caster,
+                    format!("Graveyard filler {idx}"),
+                    Zone::Graveyard,
+                )
+            })
+            .collect();
+        let mut ability = ResolvedAbility::new(
+            Effect::DealDamage {
+                amount: QuantityExpr::Ref {
+                    qty: QuantityRef::Variable {
+                        name: "X".to_string(),
+                    },
+                },
+                target: TargetFilter::Typed(TypedFilter::creature()),
+                damage_source: None,
+            },
+            Vec::new(),
+            source,
+            caster,
+        );
+        ability.chosen_x = Some(3);
+        let pending = PendingCast::new(
+            source,
+            CardId(9_200),
+            ability,
+            ManaCost::Cost {
+                generic: 1,
+                shards: vec![ManaCostShard::Red],
+            },
+        );
+        let mut events = Vec::new();
+        let waiting = pay_additional_cost(
+            &mut state,
+            caster,
+            AbilityCost::Exile {
+                count: u32::MAX,
+                zone: Some(Zone::Graveyard),
+                filter: None,
+            },
+            pending,
+            &mut events,
+        )
+        .expect("chosen X should route to graveyard exile payment");
+        match waiting {
+            WaitingFor::PayCost {
+                kind:
+                    PayCostKind::ExileFromZone {
+                        zone: ExileCostSourceZone::Graveyard,
+                    },
+                choices,
+                count,
+                ..
+            } => {
+                assert_eq!(count, 3);
+                for card in gy_cards {
+                    assert!(choices.contains(&card));
+                }
+            }
+            other => panic!("expected PayCost ExileFromZone, got {other:?}"),
+        }
     }
 
     #[test]

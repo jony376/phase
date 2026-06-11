@@ -19,7 +19,8 @@ pub(crate) use lower::{
 };
 // pub(super) re-exports used by sibling submodules via `super::fn_name()`.
 pub(super) use lower::{
-    apply_where_x_to_filter, extract_exact_target_multi_target, parse_dynamic_counter_suffix_body,
+    apply_where_x_to_filter, extract_bounded_target_multi_target,
+    extract_exact_target_multi_target, parse_dynamic_counter_suffix_body,
     parse_multi_target_count_expr, parse_where_x_quantity_expression, strip_exact_target_prefix,
     strip_optional_target_prefix, try_parse_pump,
 };
@@ -7621,7 +7622,8 @@ fn lower_imperative_clause(text: &str, ctx: &mut ParseContext) -> ParsedEffectCl
     if clause.multi_target.is_none()
         && triggers::extract_target_filter_from_effect(&clause.effect).is_some()
     {
-        clause.multi_target = extract_exact_target_multi_target(text);
+        clause.multi_target = extract_exact_target_multi_target(text)
+            .or_else(|| extract_bounded_target_multi_target(text));
     }
     if matches!(clause.effect, Effect::DealDamage { .. }) && clause.multi_target.is_none() {
         clause.multi_target = extract_deal_damage_multi_target(text);
@@ -27972,6 +27974,48 @@ mod tests {
             clause.effect
         );
         assert_eq!(clause.multi_target, Some(MultiTargetSpec::fixed(1, 3)),);
+    }
+
+    /// CR 115.1d + CR 700.2: Trystan's Command mode 2 — "return one or two
+    /// target permanent cards from your graveyard to your hand" must attach
+    /// `MultiTargetSpec { min: 1, max: 2 }` on the bounce/return effect.
+    #[test]
+    fn return_one_or_two_target_permanents_from_graveyard_is_multi_targeted() {
+        let clause = parse_effect_clause(
+            "Return one or two target permanent cards from your graveyard to your hand.",
+            &mut ParseContext::default(),
+        );
+        assert!(
+            matches!(clause.effect, Effect::Bounce { .. }),
+            "expected Bounce, got {:?}",
+            clause.effect
+        );
+        assert_eq!(clause.multi_target, Some(MultiTargetSpec::fixed(1, 2)));
+    }
+
+    #[test]
+    fn trystans_command_return_mode_parses_with_multi_target() {
+        let parsed = parse_oracle_text(
+            "Choose two —\n\
+• Create a token that's a copy of target Elf you control.\n\
+• Return one or two target permanent cards from your graveyard to your hand.\n\
+• Destroy target creature or enchantment.\n\
+• Creatures target player controls get +3/+3 until end of turn. Untap them.",
+            "Trystan's Command",
+            &[],
+            &["Sorcery".to_string()],
+            &[],
+        );
+        let return_mode = parsed
+            .abilities
+            .iter()
+            .nth(1)
+            .expect("return mode should be second mode ability");
+        assert_eq!(
+            return_mode.multi_target,
+            Some(MultiTargetSpec::fixed(1, 2)),
+            "return mode must allow selecting up to two graveyard permanents"
+        );
     }
 
     #[test]

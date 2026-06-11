@@ -347,6 +347,25 @@ fn attach_controller_to_quantity_filter(filter: &mut TargetFilter, controller: C
     }
 }
 
+fn attach_property_to_quantity_filter(filter: &mut TargetFilter, property: FilterProp) {
+    match filter {
+        TargetFilter::Typed(TypedFilter { properties, .. })
+            if !properties
+                .iter()
+                .any(|existing| property.same_kind(existing)) =>
+        {
+            properties.push(property);
+        }
+        TargetFilter::Or { filters } | TargetFilter::And { filters } => {
+            for filter in filters {
+                attach_property_to_quantity_filter(filter, property.clone());
+            }
+        }
+        TargetFilter::Not { filter } => attach_property_to_quantity_filter(filter, property),
+        _ => {}
+    }
+}
+
 fn quantity_filter_has_meaningful_content(filter: &TargetFilter) -> bool {
     match filter {
         TargetFilter::Typed(tf) => !tf.type_filters.is_empty() || !tf.properties.is_empty(),
@@ -368,6 +387,15 @@ fn parse_quantity_controller_suffix(input: &str) -> OracleResult<'_, ControllerR
         // CR 109.4: "your opponents control" — aggregate across each opponent's
         // permanents (Angry Mob, Chameleon Spirit, Entropic Specter class).
         value(ControllerRef::Opponent, tag(" your opponents control")),
+    ))
+    .parse(input)
+}
+
+fn parse_pre_controller_chosen_filter_suffix(input: &str) -> OracleResult<'_, FilterProp> {
+    alt((
+        // CR 105.4: "of the chosen color" filters by the source's chosen color.
+        value(FilterProp::IsChosenColor, tag(" of the chosen color")),
+        value(FilterProp::IsChosenColor, tag(" of that color")),
     ))
     .parse(input)
 }
@@ -896,7 +924,11 @@ fn parse_qualified_controlled_type(input: &str) -> OracleResult<'_, QuantityRef>
         )));
     }
 
+    let (rest, chosen_prop) = opt(parse_pre_controller_chosen_filter_suffix).parse(rest)?;
     let (rest, controller) = parse_quantity_controller_suffix(rest)?;
+    if let Some(prop) = chosen_prop {
+        attach_property_to_quantity_filter(&mut filter, prop);
+    }
     attach_controller_to_quantity_filter(&mut filter, controller);
     Ok((rest, QuantityRef::ObjectCount { filter }))
 }

@@ -2733,6 +2733,18 @@ fn relative_filter_controller(
         .unwrap_or(ability.controller)
 }
 
+/// CR 115.4: "any other target" / "another target" — any legal target except
+/// those already chosen for this spell/ability on the stack.
+fn is_any_other_target_filter(filter: &TargetFilter) -> bool {
+    matches!(
+        filter,
+        TargetFilter::Typed(tf)
+            if tf.type_filters.is_empty()
+                && tf.controller.is_none()
+                && tf.properties.iter().any(|p| matches!(p, FilterProp::Another))
+    )
+}
+
 /// Compute the legal targets for one slot, then drop any object already chosen
 /// in a prior slot of the SAME instance of "target".
 ///
@@ -2843,6 +2855,14 @@ fn legal_targets_for_selected_slot(
         })
         .collect();
     legal.retain(|t| !matches!(t, TargetRef::Object(id) if already_in_instance.contains(id)));
+
+    // CR 115.4: "any other target" is a separate instance of "target" but must
+    // differ from every target already chosen for this spell/ability.
+    if is_any_other_target_filter(&spec.filter) {
+        for prior in selected_slots.iter().flatten() {
+            legal.retain(|t| t != prior);
+        }
+    }
     legal
 }
 
@@ -8647,6 +8667,56 @@ mod tests {
             )
             .is_ok(),
             "CR 601.2c artifact+land Example: same object accepted in both separate instances"
+        );
+    }
+
+    /// CR 115.4: Arc Trail class — "N damage to any target and M damage to any
+    /// other target" uses two instances of "target", but the second must differ
+    /// from the first.
+    #[test]
+    fn any_other_target_excludes_prior_cast_choices_across_instances() {
+        let mut state = GameState::new(FormatConfig::standard(), 2, 42);
+        let bear = create_creature(&mut state, PlayerId(1), CardId(1), "Bear");
+
+        let ability = ResolvedAbility::new(
+            Effect::DealDamage {
+                amount: QuantityExpr::Fixed { value: 2 },
+                target: TargetFilter::Any,
+                damage_source: None,
+            },
+            vec![],
+            ObjectId(900),
+            PlayerId(0),
+        )
+        .sub_ability(ResolvedAbility::new(
+            Effect::DealDamage {
+                amount: QuantityExpr::Fixed { value: 1 },
+                target: TargetFilter::Typed(
+                    TypedFilter::default().properties(vec![FilterProp::Another]),
+                ),
+                damage_source: None,
+            },
+            vec![],
+            ObjectId(900),
+            PlayerId(0),
+        ));
+
+        let specs = target_slot_specs(&state, &ability);
+        let target_slots = build_target_slots(&state, &ability).expect("slots build");
+        assert_eq!(specs.len(), 2);
+
+        let prior = vec![Some(TargetRef::Object(bear))];
+        let slot1 = legal_targets_for_spec_slot(&state, &ability, &specs, &target_slots, 1, &prior);
+        assert!(
+            !slot1.contains(&TargetRef::Object(bear)),
+            "any other target must exclude the first chosen target"
+        );
+
+        let dup = vec![Some(TargetRef::Object(bear)), Some(TargetRef::Object(bear))];
+        assert!(
+            validate_selected_slots_with_specs(&state, &ability, &specs, &target_slots, &dup, &[],)
+                .is_err(),
+            "reusing the same object for both Arc Trail targets must be rejected"
         );
     }
 

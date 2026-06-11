@@ -3887,8 +3887,10 @@ pub enum PlayerFilter {
     OpponentLostLife,
     /// Each opponent who gained life this turn (life_gained_this_turn > 0).
     OpponentGainedLife,
-    /// CR 104.3: Each player who has lost the game (`is_eliminated`).
-    /// Rampant Frogantua class: "+10/+10 for each player who has lost the game".
+    /// CR 104.3 + CR 104.5: Each player who has lost the game (`is_eliminated`).
+    /// Quantity-only: players who lost have left the game, so this is not a live
+    /// effect recipient filter. Rampant Frogantua class: "+10/+10 for each
+    /// player who has lost the game".
     HasLostTheGame,
     /// CR 120.1 + CR 510.1 + CR 120.9 + CR 608.2i: Each opponent who was dealt
     /// combat damage this turn, optionally restricted to damage from a source

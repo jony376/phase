@@ -230,14 +230,6 @@ pub(crate) fn matches_player_scope(
     controller: PlayerId,
     source_id: ObjectId,
 ) -> bool {
-    if matches!(scope, PlayerFilter::HasLostTheGame) {
-        return state
-            .players
-            .iter()
-            .find(|p| p.id == player)
-            .is_some_and(|p| p.is_eliminated);
-    }
-
     state
         .players
         .iter()
@@ -265,7 +257,8 @@ pub(crate) fn matches_player_scope(
                     PlayerFilter::OpponentGainedLife => {
                         p.id != controller && p.life_gained_this_turn > 0
                     }
-                    // Handled by the early return above; unreachable here.
+                    // CR 104.5 / CR 800.4: Players who lost have left the game;
+                    // this filter is quantity-only and has no live effect recipient.
                     PlayerFilter::HasLostTheGame => false,
                     // CR 120.1 + CR 510.1 + CR 120.9 + CR 608.2i: Each opponent
                     // who was dealt combat damage this turn, optionally

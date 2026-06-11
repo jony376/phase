@@ -932,15 +932,6 @@ fn collect_matching_players(
     source_controller: PlayerId,
     source_id: crate::types::identifiers::ObjectId,
 ) -> Vec<PlayerId> {
-    if matches!(player_filter, PlayerFilter::HasLostTheGame) {
-        return state
-            .players
-            .iter()
-            .filter(|p| p.is_eliminated)
-            .map(|p| p.id)
-            .collect();
-    }
-
     state
         .players
         .iter()
@@ -967,7 +958,8 @@ fn collect_matching_players(
                     PlayerFilter::OpponentGainedLife => {
                         p.id != source_controller && p.life_gained_this_turn > 0
                     }
-                    // Handled by the early return above; unreachable here.
+                    // CR 104.5 / CR 800.4: Players who lost have left the game;
+                    // this filter is quantity-only and has no live damage recipient.
                     PlayerFilter::HasLostTheGame => false,
                     // CR 120.1 + CR 510.1 + CR 120.9 + CR 608.2i: Each opponent
                     // who was dealt combat damage this turn, optionally
@@ -1128,14 +1120,12 @@ pub fn resolve_each_player(
     let ctx = DamageContext::from_source(state, ability.source_id)
         .unwrap_or_else(|| DamageContext::fallback(ability.source_id, ability.controller));
 
-    let count_eliminated = matches!(player_filter, PlayerFilter::HasLostTheGame);
-
     // Collect matching player IDs first to avoid borrow issues.
     let player_ids: Vec<PlayerId> = state
         .players
         .iter()
         .filter(|p| {
-            (count_eliminated && p.is_eliminated || !count_eliminated && !p.is_eliminated)
+            !p.is_eliminated
                 && match &player_filter {
                     PlayerFilter::Controller => p.id == ability.controller,
                     PlayerFilter::All => true,
@@ -1157,7 +1147,9 @@ pub fn resolve_each_player(
                     PlayerFilter::OpponentGainedLife => {
                         p.id != ability.controller && p.life_gained_this_turn > 0
                     }
-                    PlayerFilter::HasLostTheGame => true,
+                    // CR 104.5 / CR 800.4: Players who lost have left the game;
+                    // this filter is quantity-only and has no live damage recipient.
+                    PlayerFilter::HasLostTheGame => false,
                     // CR 120.1 + CR 510.1 + CR 120.9 + CR 608.2i: Each opponent
                     // who was dealt combat damage this turn, optionally
                     // restricted to a matching source.

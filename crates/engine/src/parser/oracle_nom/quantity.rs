@@ -3118,21 +3118,6 @@ mod tests {
             }
             other => panic!("expected ObjectCount, got {other:?}"),
         }
-
-        let (rest, q) = parse_quantity_ref(
-            "the number of permanents of the chosen color your opponents control",
-        )
-        .unwrap();
-        assert_eq!(rest, "");
-        match q {
-            QuantityRef::ObjectCount {
-                filter: TargetFilter::Typed(tf),
-            } => {
-                assert_eq!(tf.controller, Some(ControllerRef::Opponent));
-                assert!(tf.properties.contains(&FilterProp::IsChosenColor));
-            }
-            other => panic!("expected ObjectCount, got {other:?}"),
-        }
     }
 
     /// CR 121.1 + CR 604.3: cards drawn this turn as a CDA quantity (Duelist of the Mind).

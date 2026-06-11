@@ -30,9 +30,8 @@ _(none)_
 
 ### `LEGACY_DESER_ETB_CONTROLLER_2026Q2` — REMOVED in v0.1.54
 
-- **Covered:** the pre-2026-Q2 `under_your_control: bool` shape at three layers
+- **Covers:** the pre-2026-Q2 `under_your_control: bool` shape at three layers
   (`Effect::ChangeZone.enters_under`, `PendingChangeZoneIteration.enters_under_player`,
   `WaitingFor::EffectZoneChoice.enters_under_player`).
 - **Added in:** 0.1.39.
-- **Removed in:** 0.1.54 — compat deserializers, `#[serde(alias)]` attributes,
-  tripwire const, and legacy bool tests deleted per removal trigger (> 0.1.53).
+- **Removed in:** 0.1.54 — deserializers, serde aliases, and tripwire deleted.

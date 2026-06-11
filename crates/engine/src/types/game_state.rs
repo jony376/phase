@@ -8003,7 +8003,8 @@ mod tests {
     }
 
     // ---------------------------------------------------------------------
-    // CR 110.2a: serde coverage for resolved-once runtime carriers.
+    // CR 110.2a: serde coverage for the resolved-once runtime carriers
+    // (`PendingChangeZoneIteration` and `WaitingFor::EffectZoneChoice`).
     // ---------------------------------------------------------------------
 
     #[test]

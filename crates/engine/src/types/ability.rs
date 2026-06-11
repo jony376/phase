@@ -14050,8 +14050,6 @@ where
 }
 
 // ---------------------------------------------------------------------------
-// Legacy on-disk compatibility for `Effect::ChangeZone::enters_under`.
-// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -15403,6 +15401,20 @@ mod tests {
         );
         let decoded: Effect = serde_json::from_str(&json).expect("roundtrip");
         assert_eq!(original, decoded);
+    }
+
+    #[test]
+    fn enters_under_field_not_emitted_when_none() {
+        // `enters_under: None` must skip-serialize; `Some(You)` must emit the
+        // modern key.
+        for variant in [None, Some(ControllerRef::You)] {
+            let effect = change_zone_with_enters_under(variant.clone());
+            let json = serde_json::to_string(&effect).expect("serialize");
+            assert!(
+                !json.contains("\"under_your_control\""),
+                "legacy bool field emitted for {variant:?}: {json}"
+            );
+        }
     }
 
     // CR 118: Cost taxonomy mapping — exhaustive per-variant coverage.

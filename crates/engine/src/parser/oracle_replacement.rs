@@ -5898,46 +5898,13 @@ fn parse_life_floor_damage_replacement(norm_lower: &str) -> Option<ReplacementDe
 fn parse_unconditional_life_floor_damage_replacement(
     norm_lower: &str,
 ) -> Option<ReplacementDefinition> {
-    let tail = norm_lower.strip_prefix("damage that would reduce your life total to ")?;
-
-    let floor_minimum = if let Ok((rest, minimum)) = preceded(
-        tag::<_, _, OracleError<'_>>("less than "),
-        nom_primitives::parse_number,
-    )
-    .parse(tail)
-    {
-        let (rest, floor_val) = preceded(
-            tag::<_, _, OracleError<'_>>(" reduces it to "),
-            nom_primitives::parse_number,
-        )
-        .parse(rest)
-        .ok()?;
-        if floor_val != minimum {
-            return None;
-        }
-        all_consuming((
-            tag::<_, _, OracleError<'_>>(" instead"),
-            opt(tag::<_, _, OracleError<'_>>(".")),
-        ))
-        .parse(rest)
-        .ok()?;
-        minimum as i32
-    } else if let Ok((rest, floor_val)) = preceded(
-        tag::<_, _, OracleError<'_>>("0 reduces it to "),
-        nom_primitives::parse_number,
-    )
-    .parse(tail)
-    {
-        all_consuming((
-            tag::<_, _, OracleError<'_>>(" instead"),
-            opt(tag::<_, _, OracleError<'_>>(".")),
-        ))
-        .parse(rest)
-        .ok()?;
-        floor_val as i32
-    } else {
-        return None;
-    };
+    let floor_minimum = alt((
+        parse_unconditional_life_floor_less_than_form,
+        parse_unconditional_life_floor_to_zero_form,
+    ))
+    .parse(norm_lower)
+    .ok()
+    .map(|(_, minimum)| minimum)?;
 
     Some(
         ReplacementDefinition::new(ReplacementEvent::DamageDone)
@@ -5948,6 +5915,49 @@ fn parse_unconditional_life_floor_damage_replacement(
                 player: DamageTargetPlayerScope::Controller,
             }),
     )
+}
+
+/// "damage that would reduce your life total to less than N reduces it to N instead."
+fn parse_unconditional_life_floor_less_than_form(input: &str) -> OracleResult<'_, i32> {
+    let (rest, minimum) = preceded(
+        tag::<_, _, OracleError<'_>>("damage that would reduce your life total to less than "),
+        nom_primitives::parse_number,
+    )
+    .parse(input)?;
+    let (rest, floor_val) = preceded(
+        tag::<_, _, OracleError<'_>>(" reduces it to "),
+        nom_primitives::parse_number,
+    )
+    .parse(rest)?;
+    if floor_val != minimum {
+        return Err(nom::Err::Error(nom::error::Error::new(
+            input,
+            nom::error::ErrorKind::Verify,
+        )));
+    }
+    all_consuming((
+        tag::<_, _, OracleError<'_>>(" instead"),
+        opt(tag::<_, _, OracleError<'_>>(".")),
+    ))
+    .parse(rest)?;
+    Ok((rest, minimum as i32))
+}
+
+/// Ali from Cairo printed wording: "…to 0 reduces it to M instead."
+fn parse_unconditional_life_floor_to_zero_form(input: &str) -> OracleResult<'_, i32> {
+    let (rest, floor_val) = preceded(
+        tag::<_, _, OracleError<'_>>(
+            "damage that would reduce your life total to 0 reduces it to ",
+        ),
+        nom_primitives::parse_number,
+    )
+    .parse(input)?;
+    all_consuming((
+        tag::<_, _, OracleError<'_>>(" instead"),
+        opt(tag::<_, _, OracleError<'_>>(".")),
+    ))
+    .parse(rest)?;
+    Ok((rest, floor_val as i32))
 }
 
 #[cfg(test)]

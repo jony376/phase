@@ -12886,8 +12886,9 @@ mod tests {
                 granted_to: None,
                 resolution_cleanup: None,
                 duration: None,
-            
-            exile_instead_of_graveyard_on_resolve: false});
+
+                exile_instead_of_graveyard_on_resolve: false,
+            });
         let prepared = prepare_spell_cast(&state, PlayerId(0), exiled).unwrap();
         assert!(matches!(prepared.mana_cost, ManaCost::NoCost));
     }
@@ -23591,7 +23592,9 @@ mod tests {
     fn cast_from_zone_exile_rider_exiles_graveyard_cast_on_resolution() {
         use crate::game::effects::cast_from_zone;
         use crate::game::stack;
-        use crate::types::ability::{CardPlayMode, CastFromZoneDriver, Effect, ResolvedAbility, TargetRef};
+        use crate::types::ability::{
+            CardPlayMode, CastFromZoneDriver, Effect, ResolvedAbility, TargetRef,
+        };
 
         let mut state = setup_game_at_main_phase();
         let instant = create_object(
@@ -23741,8 +23744,9 @@ mod tests {
                     granted_to: Some(PlayerId(0)),
                     resolution_cleanup: None,
                     duration: None,
-                
-                exile_instead_of_graveyard_on_resolve: false});
+
+                    exile_instead_of_graveyard_on_resolve: false,
+                });
         }
 
         let prepared = prepare_spell_cast(&state, PlayerId(0), spell)
@@ -23787,8 +23791,9 @@ mod tests {
             granted_to: Some(PlayerId(0)),
             resolution_cleanup: None,
             duration: None,
-        
-        exile_instead_of_graveyard_on_resolve: false}
+
+            exile_instead_of_graveyard_on_resolve: false,
+        }
     }
 
     #[test]
@@ -23825,8 +23830,9 @@ mod tests {
                     granted_to: Some(PlayerId(0)),
                     resolution_cleanup: None,
                     duration: None,
-                
-                exile_instead_of_graveyard_on_resolve: false});
+
+                    exile_instead_of_graveyard_on_resolve: false,
+                });
         }
 
         let waiting =
@@ -29725,8 +29731,9 @@ mod tests {
                 granted_to: None,
                 resolution_cleanup: None,
                 duration: None,
-            
-            exile_instead_of_graveyard_on_resolve: false});
+
+                exile_instead_of_graveyard_on_resolve: false,
+            });
 
         assert!(is_blocked_by_cast_only_from_zones(
             &state,
@@ -32204,8 +32211,9 @@ mod tests {
                     granted_to: None,
                     resolution_cleanup: None,
                     duration: None,
-                
-                exile_instead_of_graveyard_on_resolve: false},
+
+                    exile_instead_of_graveyard_on_resolve: false,
+                },
             );
         }
 

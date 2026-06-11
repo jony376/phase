@@ -4681,21 +4681,17 @@ pub(super) fn finalize_cast_with_phyrexian_choices(
 
     // CR 614.1a: `CastFromZone` grants with an "exile it instead" rider stamp the
     // synthetic self-scoped graveyard redirect when the granted cast finalizes.
-    if state
-        .objects
-        .get(&object_id)
-        .is_some_and(|obj| {
-            obj.casting_permissions.iter().any(|p| {
-                matches!(
-                    p,
-                    crate::types::ability::CastingPermission::ExileWithAltCost {
-                        exile_instead_of_graveyard_on_resolve: true,
-                        ..
-                    }
-                )
-            })
+    if state.objects.get(&object_id).is_some_and(|obj| {
+        obj.casting_permissions.iter().any(|p| {
+            matches!(
+                p,
+                crate::types::ability::CastingPermission::ExileWithAltCost {
+                    exile_instead_of_graveyard_on_resolve: true,
+                    ..
+                }
+            )
         })
-    {
+    }) {
         apply_exile_instead_of_graveyard_rider(state, object_id);
     }
 
@@ -10654,8 +10650,9 @@ mod tests {
                         success_action: ResolutionCastSuccessAction::BottomMisses,
                     }),
                     duration: None,
-                
-                exile_instead_of_graveyard_on_resolve: false});
+
+                    exile_instead_of_graveyard_on_resolve: false,
+                });
 
             (state, hit, vec![miss_a, miss_b])
         }
@@ -10754,8 +10751,9 @@ mod tests {
                         },
                     }),
                     duration: None,
-                
-                exile_instead_of_graveyard_on_resolve: false});
+
+                    exile_instead_of_graveyard_on_resolve: false,
+                });
 
             let outcome = evaluate_cascade_constraint_with_resulting_mv(
                 &mut state,
@@ -10818,8 +10816,9 @@ mod tests {
                         },
                     }),
                     duration: None,
-                
-                exile_instead_of_graveyard_on_resolve: false});
+
+                    exile_instead_of_graveyard_on_resolve: false,
+                });
 
             let outcome = evaluate_cascade_constraint_with_resulting_mv(
                 &mut state,
@@ -10860,8 +10859,9 @@ mod tests {
                     granted_to: Some(PlayerId(0)),
                     resolution_cleanup: None,
                     duration: None,
-                
-                exile_instead_of_graveyard_on_resolve: false});
+
+                    exile_instead_of_graveyard_on_resolve: false,
+                });
             push_announcement_stack_entry(&mut state, hit);
 
             let waiting = finalize_cast_with_phyrexian_choices(
@@ -10913,8 +10913,9 @@ mod tests {
                     granted_to: Some(PlayerId(0)),
                     resolution_cleanup: None,
                     duration: None,
-                
-                exile_instead_of_graveyard_on_resolve: false});
+
+                    exile_instead_of_graveyard_on_resolve: false,
+                });
             hit_obj
                 .casting_permissions
                 .push(CastingPermission::ExileWithAltCost {
@@ -10924,8 +10925,9 @@ mod tests {
                     granted_to: Some(PlayerId(0)),
                     resolution_cleanup: None,
                     duration: None,
-                
-                exile_instead_of_graveyard_on_resolve: false});
+
+                    exile_instead_of_graveyard_on_resolve: false,
+                });
             push_announcement_stack_entry(&mut state, hit);
 
             let mut ability = placeholder_ability(hit);
@@ -10969,8 +10971,9 @@ mod tests {
                     granted_to: Some(PlayerId(0)),
                     resolution_cleanup: None,
                     duration: None,
-                
-                exile_instead_of_graveyard_on_resolve: false});
+
+                    exile_instead_of_graveyard_on_resolve: false,
+                });
             state.players[0].mana_pool.add(ManaUnit {
                 color: ManaType::Colorless,
                 source_id: ObjectId(99),
@@ -11033,8 +11036,9 @@ mod tests {
                     granted_to: Some(PlayerId(0)),
                     resolution_cleanup: None,
                     duration: None,
-                
-                exile_instead_of_graveyard_on_resolve: false});
+
+                    exile_instead_of_graveyard_on_resolve: false,
+                });
             hit_obj
                 .casting_permissions
                 .push(CastingPermission::ExileWithAltCost {
@@ -11051,8 +11055,9 @@ mod tests {
                         success_action: ResolutionCastSuccessAction::BottomMisses,
                     }),
                     duration: None,
-                
-                exile_instead_of_graveyard_on_resolve: false});
+
+                    exile_instead_of_graveyard_on_resolve: false,
+                });
             push_announcement_stack_entry(&mut state, hit);
 
             let mut ability = placeholder_ability(hit);
@@ -11104,8 +11109,9 @@ mod tests {
                         success_action: ResolutionCastSuccessAction::BottomMisses,
                     }),
                     duration: None,
-                
-                exile_instead_of_graveyard_on_resolve: false});
+
+                    exile_instead_of_graveyard_on_resolve: false,
+                });
             hit_obj
                 .casting_permissions
                 .push(CastingPermission::ExileWithAltCost {
@@ -11115,8 +11121,9 @@ mod tests {
                     granted_to: Some(PlayerId(0)),
                     resolution_cleanup: None,
                     duration: None,
-                
-                exile_instead_of_graveyard_on_resolve: false});
+
+                    exile_instead_of_graveyard_on_resolve: false,
+                });
             push_announcement_stack_entry(&mut state, hit);
 
             let waiting = finalize_cast_with_phyrexian_choices(

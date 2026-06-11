@@ -27979,7 +27979,7 @@ mod tests {
         assert_eq!(clause.multi_target, Some(MultiTargetSpec::fixed(1, 3)),);
     }
 
-    /// CR 115.1d + CR 700.2: Trystan's Command mode 2 — "return one or two
+    /// CR 115.1a + CR 601.2c: Trystan's Command mode 2 — "return one or two
     /// target permanent cards from your graveyard to your hand" must attach
     /// `MultiTargetSpec { min: 1, max: 2 }` on the bounce/return effect.
     #[test]

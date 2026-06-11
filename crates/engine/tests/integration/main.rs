@@ -136,6 +136,7 @@ mod issue_2938_deflecting_swat;
 mod issue_2940_krark_thumbless;
 mod issue_2941_vivien_reid;
 mod issue_2943_kayas_wrath;
+mod issue_3004_trystan_return_mode_multi_target;
 mod issue_564_wishclaw_talisman_control;
 mod issue_565_birthing_ritual_end_step_trigger;
 mod issue_566_ragavan_dash_cast;

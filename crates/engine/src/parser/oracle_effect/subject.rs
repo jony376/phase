@@ -9,7 +9,7 @@ use nom::Parser;
 use super::animation::{
     animation_modifications_with_replacement, has_in_addition_to_other_types, parse_animation_spec,
 };
-use super::lower::BOUNDED_TARGET_PHRASES;
+use super::lower::{BOUNDED_TARGET_ADJECTIVE_PREFIXES, BOUNDED_TARGET_PHRASES};
 use super::{resolve_it_pronoun, ParseContext};
 use crate::parser::oracle_ir::ast::*;
 use crate::types::ability::{
@@ -843,15 +843,12 @@ pub(super) fn parse_subject_application(
             return Some(application);
         }
     }
-    // CR 115.1d: "one or two target X" / "one, two, or three target X" —
+    // CR 115.1a + CR 601.2c: "one or two target X" / "one, two, or three target X" —
     // bounded-count targeting with a minimum of 1 (Scrollboost:
     // "One or two target creatures each get +2/+2 until end of turn"). Mirrors
     // the "any number of target" branch above; the only axis of variation is
     // the min/max pair bound by the phrase.
-    for (prefix, min, max) in [
-        ("one or two ", 1usize, 2usize),
-        ("one, two, or three ", 1, 3),
-    ] {
+    for &(prefix, min, max) in BOUNDED_TARGET_ADJECTIVE_PREFIXES {
         if let Ok((after_prefix, _)) = tag::<_, _, OracleError<'_>>(prefix).parse(lower.as_str()) {
             if tag::<_, _, OracleError<'_>>("target ")
                 .parse(after_prefix)

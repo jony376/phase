@@ -2672,10 +2672,11 @@ pub(crate) fn extract_exact_target_multi_target(text: &str) -> Option<MultiTarge
     None
 }
 
-/// CR 115.1d: Recover bounded multi-target counts from imperative text where the
-/// verb precedes the count phrase — "return one or two target permanent cards
-/// from your graveyard" (Trystan's Command mode 2). The targeted-action parser
-/// strips the count via `parse_target` but does not attach `MultiTargetSpec`.
+/// CR 115.1a + CR 601.2c: Recover bounded multi-target counts from imperative
+/// text where the verb precedes the count phrase — "return one or two target
+/// permanent cards from your graveyard" (Trystan's Command mode 2). The
+/// targeted-action parser strips the count via `parse_target` but does not
+/// attach `MultiTargetSpec`.
 pub(crate) fn extract_bounded_target_multi_target(text: &str) -> Option<MultiTargetSpec> {
     let lower = text.to_lowercase();
     for verb in MULTI_TARGET_VERBS {
@@ -2684,10 +2685,7 @@ pub(crate) fn extract_bounded_target_multi_target(text: &str) -> Option<MultiTar
         else {
             continue;
         };
-        for (prefix, min, max) in [
-            ("one or two ", 1usize, 2usize),
-            ("one, two, or three ", 1, 3),
-        ] {
+        for &(prefix, min, max) in BOUNDED_TARGET_ADJECTIVE_PREFIXES {
             if let Ok((after_prefix, _)) = tag::<_, _, OracleError<'_>>(prefix).parse(after_verb) {
                 if tag::<_, _, OracleError<'_>>("target ")
                     .parse(after_prefix)
@@ -2859,6 +2857,11 @@ pub(super) const BOUNDED_TARGET_PHRASES: &[(&str, usize, usize)] = &[
     ("one or two targets", 1, 2),
     ("one, two, or three targets", 1, 3),
 ];
+
+/// CR 115.1a + CR 601.2c: bounded-count adjective prefixes before "target X"
+/// ("one or two target permanents", Scrollboost/Trystan's Command class).
+pub(super) const BOUNDED_TARGET_ADJECTIVE_PREFIXES: &[(&str, usize, usize)] =
+    &[("one or two ", 1, 2), ("one, two, or three ", 1, 3)];
 
 /// CR 115.1d + CR 601.2c: Strip exact target-count prefix before a targeted
 /// phrase. "two target creatures" and "X target creatures" both set the exact

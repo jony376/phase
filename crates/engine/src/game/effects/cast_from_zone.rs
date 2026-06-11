@@ -747,8 +747,8 @@ mod tests {
 
         assert_eq!(
             state.objects[&instant].zone,
-            Zone::Graveyard,
-            "the rider is metadata for the later cast, not an immediate exile"
+            Zone::Exile,
+            "linked exile cards stay in exile while the cast permission is stamped"
         );
         assert!(state.objects[&instant]
             .casting_permissions

@@ -6,8 +6,8 @@ use super::support::*;
 use super::*;
 use crate::types::ability::{
     ActivationRestriction, AggregateFunction, CardTypeSetSource, CountScope, DamageKindFilter,
-    Duration, Effect, ObjectProperty, PlayerScope, PtStat, PtValueScope, QuantityExpr,
-    SharedQuality, SharedQualityRelation, TypeFilter, ZoneRef,
+    Duration, Effect, ObjectProperty, PlayerFilter, PlayerScope, PtStat, PtValueScope,
+    QuantityExpr, QuantityRef, SharedQuality, SharedQualityRelation, TypeFilter, ZoneRef,
 };
 use crate::types::counter::CounterType;
 use crate::types::keywords::Keyword;
@@ -7018,6 +7018,39 @@ fn static_parse_for_each_clause_other_creature() {
     assert!(
         matches!(result.unwrap(), QuantityRef::ObjectCount { .. }),
         "Expected ObjectCount"
+    );
+}
+
+#[test]
+fn static_rampant_frogantua_lost_game_multiplier() {
+    let def =
+        parse_static_line("This creature gets +10/+10 for each player who has lost the game.")
+            .expect("Rampant Frogantua lost-game static should parse");
+    assert_eq!(def.mode, StaticMode::Continuous);
+    assert!(
+        def.modifications.iter().any(|m| {
+            matches!(
+                m,
+                ContinuousModification::AddDynamicPower { value, .. }
+                    | ContinuousModification::AddDynamicToughness { value, .. }
+                    if matches!(
+                        value,
+                        QuantityExpr::Multiply {
+                            factor: 10,
+                            inner,
+                        } if matches!(
+                            inner.as_ref(),
+                            QuantityExpr::Ref {
+                                qty: QuantityRef::PlayerCount {
+                                    filter: PlayerFilter::HasLostTheGame,
+                                },
+                            }
+                        )
+                    )
+            )
+        }),
+        "expected +10/+10 keyed on HasLostTheGame, got {:?}",
+        def.modifications
     );
 }
 

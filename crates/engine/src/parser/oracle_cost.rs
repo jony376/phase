@@ -903,19 +903,25 @@ pub(crate) fn try_parse_cost_reduction(text: &str) -> Option<CostReduction> {
 
     let after_mana = after_mana.trim_start();
 
-    // CR 601.2f: flat conditional reduction — "less to activate if [condition]".
-    if let Some(((), after_if)) = nom_on_lower(after_mana, after_mana, |i| {
+    // CR 602.2b + CR 601.2f conditional flat form: "... less to activate if [condition]" /
+    // "... less to cast if [condition]". The reduction is a flat {amount_per}
+    // (count = Fixed(1)) gated by `condition`. Checked before the "for each"
+    // form; if the "if " marker is present but the condition does not parse,
+    // return None so the clause stays a loud gap (coverage honesty) rather than
+    // silently mis-parsing.
+    if let Some(((), cond_text)) = nom_on_lower(after_mana, after_mana, |i| {
         value(
             (),
             alt((tag("less to activate if "), tag("less to cast if "))),
         )
         .parse(i)
     }) {
-        let when = parse_restriction_condition(after_if)?;
+        let cond_text = cond_text.trim().trim_end_matches('.').trim();
+        let condition = parse_restriction_condition(cond_text)?;
         return Some(CostReduction {
             amount_per,
-            count: QuantityExpr::Fixed { value: 0 },
-            when: Some(when),
+            count: QuantityExpr::Fixed { value: 1 },
+            condition: Some(condition),
         });
     }
 
@@ -937,7 +943,7 @@ pub(crate) fn try_parse_cost_reduction(text: &str) -> Option<CostReduction> {
         return Some(CostReduction {
             amount_per,
             count: QuantityExpr::Ref { qty },
-            when: None,
+            condition: None,
         });
     }
 
@@ -952,7 +958,7 @@ pub(crate) fn try_parse_cost_reduction(text: &str) -> Option<CostReduction> {
         count: QuantityExpr::Ref {
             qty: QuantityRef::ObjectCount { filter },
         },
-        when: None,
+        condition: None,
     })
 }
 
@@ -1842,17 +1848,32 @@ mod tests {
         assert!(try_parse_cost_reduction("something else entirely").is_none());
     }
 
-    /// CR 601.2f: flat conditional reduction (Esquire of the King class).
+    /// CR 602.2b + CR 601.2f: the conditional flat form "costs {N} less to activate if
+    /// [condition]" parses to a `CostReduction` with `count = Fixed(1)` and a
+    /// `condition` gate (Esquire of the King, Razorlash Transmogrant, …).
     #[test]
-    fn cost_reduction_conditional_if_you_control_legendary_creature() {
-        let reduction = try_parse_cost_reduction(
+    fn cost_reduction_conditional_flat_form_carries_condition() {
+        let def = try_parse_cost_reduction(
             "this ability costs {2} less to activate if you control a legendary creature",
         )
         .expect("conditional cost reduction should parse");
-        assert_eq!(reduction.amount_per, 2);
-        assert_eq!(
-            reduction.when,
-            Some(crate::types::ability::ParsedCondition::YouControlLegendaryCreature)
+        assert_eq!(def.amount_per, 2);
+        assert_eq!(def.count, QuantityExpr::Fixed { value: 1 });
+        assert!(
+            def.condition.is_some(),
+            "the 'if [condition]' gate must be captured, got {:?}",
+            def.condition
+        );
+
+        // "if you're <something the condition parser doesn't model>" must NOT
+        // silently mis-parse: an unrecognized condition yields no reduction
+        // (stays a loud gap) rather than an unconditional one.
+        assert!(
+            try_parse_cost_reduction(
+                "this ability costs {2} less to activate if the moon is gibbous"
+            )
+            .is_none(),
+            "unparseable condition must not produce an (unconditional) reduction"
         );
     }
 
@@ -1863,7 +1884,24 @@ mod tests {
         )
         .expect("opponent nonbasic land gate should parse");
         assert_eq!(reduction.amount_per, 4);
-        assert!(reduction.when.is_some());
+        assert_eq!(reduction.count, QuantityExpr::Fixed { value: 1 });
+        assert!(reduction.condition.is_some());
+    }
+
+    /// Regression: the "for each" scaling form is unchanged and carries no
+    /// condition.
+    #[test]
+    fn cost_reduction_for_each_form_unconditional() {
+        let def = try_parse_cost_reduction(
+            "this ability costs {1} less to activate for each artifact you control",
+        )
+        .expect("for-each cost reduction should still parse");
+        assert_eq!(def.amount_per, 1);
+        assert_eq!(def.condition, None, "for-each form is unconditional");
+        assert!(
+            !matches!(def.count, QuantityExpr::Fixed { .. }),
+            "for-each count is a dynamic ref, not Fixed"
+        );
     }
 
     #[test]

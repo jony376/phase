@@ -560,12 +560,7 @@ fn parse_discard_to_library_top_replacement(
     if all_consuming(terminated(
         pair(
             tag::<_, _, OracleError<'_>>("put it on top of your "),
-            // CR 201.4b: `normalize_card_name_refs` rewrites "Library of Leng"'s
-            // possessive "your library" to "your ~" before this parser runs.
-            alt((
-                tag::<_, _, OracleError<'_>>("library"),
-                tag::<_, _, OracleError<'_>>("~"),
-            )),
+            tag::<_, _, OracleError<'_>>("library"),
         ),
         pair(
             tag::<_, _, OracleError<'_>>(" instead of into your graveyard"),

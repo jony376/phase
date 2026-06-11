@@ -28008,8 +28008,7 @@ mod tests {
         );
         let return_mode = parsed
             .abilities
-            .iter()
-            .nth(1)
+            .get(1)
             .expect("return mode should be second mode ability");
         assert_eq!(
             return_mode.multi_target,

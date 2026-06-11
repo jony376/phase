@@ -257,20 +257,26 @@ pub fn resolve(
     Ok(())
 }
 
-/// CR 614.1a: Toshiro / Torrential Gearhulk class — `CastFromZone` with a
-/// sequential sibling that exiles the cast spell (`ParentTarget`) instead of
-/// letting it reach the graveyard on resolution.
+/// CR 614.1a: Toshiro / Torrential Gearhulk class — the parser currently
+/// represents "If that spell would be put into a graveyard, exile it instead"
+/// as a sequential `ChangeZone` rider on `CastFromZone`. Runtime consumes that
+/// rider as permission metadata, not as an immediate zone move.
+pub(crate) fn is_graveyard_exile_rider_subability(ability: &ResolvedAbility) -> bool {
+    matches!(
+        &ability.effect,
+        Effect::ChangeZone {
+            destination: Zone::Exile,
+            target: TargetFilter::ParentTarget,
+            ..
+        }
+    )
+}
+
 fn cast_from_zone_has_graveyard_exile_rider(ability: &ResolvedAbility) -> bool {
-    ability.sub_ability.as_ref().is_some_and(|sub| {
-        matches!(
-            &sub.effect,
-            Effect::ChangeZone {
-                destination: Zone::Exile,
-                target: TargetFilter::ParentTarget,
-                ..
-            }
-        )
-    })
+    ability
+        .sub_ability
+        .as_deref()
+        .is_some_and(is_graveyard_exile_rider_subability)
 }
 
 /// CR 118.9: Stamp `ExileWithAltCost` / `ExileWithAltAbilityCost` on resolved
@@ -737,8 +743,13 @@ mod tests {
         );
 
         let mut events = vec![];
-        resolve(&mut state, &ability, &mut events).unwrap();
+        crate::game::effects::resolve_ability_chain(&mut state, &ability, &mut events, 0).unwrap();
 
+        assert_eq!(
+            state.objects[&instant].zone,
+            Zone::Graveyard,
+            "the rider is metadata for the later cast, not an immediate exile"
+        );
         assert!(state.objects[&instant]
             .casting_permissions
             .iter()

@@ -6,6 +6,7 @@ use nom::multi::separated_list1;
 use nom::sequence::{pair, preceded, terminated};
 use nom::Parser;
 
+use super::oracle_condition::parse_restriction_condition;
 use super::oracle_effect::imperative::parse_discard_card_filter;
 use super::oracle_modal::split_short_label_prefix;
 use super::oracle_nom::bridge::nom_on_lower;
@@ -900,8 +901,25 @@ pub(crate) fn try_parse_cost_reduction(text: &str) -> Option<CostReduction> {
         _ => return None, // Only generic mana reduction supported
     };
 
-    // Strip " less to activate for each " or " less to cast for each "
     let after_mana = after_mana.trim_start();
+
+    // CR 601.2f: flat conditional reduction — "less to activate if [condition]".
+    if let Some(((), after_if)) = nom_on_lower(after_mana, after_mana, |i| {
+        value(
+            (),
+            alt((tag("less to activate if "), tag("less to cast if "))),
+        )
+        .parse(i)
+    }) {
+        let when = parse_restriction_condition(after_if)?;
+        return Some(CostReduction {
+            amount_per,
+            count: QuantityExpr::Fixed { value: 0 },
+            when: Some(when),
+        });
+    }
+
+    // Per-object reduction — "less to activate for each [condition]".
     let ((), after_less) = nom_on_lower(after_mana, after_mana, |i| {
         value(
             (),
@@ -919,6 +937,7 @@ pub(crate) fn try_parse_cost_reduction(text: &str) -> Option<CostReduction> {
         return Some(CostReduction {
             amount_per,
             count: QuantityExpr::Ref { qty },
+            when: None,
         });
     }
 
@@ -933,6 +952,7 @@ pub(crate) fn try_parse_cost_reduction(text: &str) -> Option<CostReduction> {
         count: QuantityExpr::Ref {
             qty: QuantityRef::ObjectCount { filter },
         },
+        when: None,
     })
 }
 
@@ -1820,6 +1840,30 @@ mod tests {
     #[test]
     fn cost_reduction_unrecognized_returns_none() {
         assert!(try_parse_cost_reduction("something else entirely").is_none());
+    }
+
+    /// CR 601.2f: flat conditional reduction (Esquire of the King class).
+    #[test]
+    fn cost_reduction_conditional_if_you_control_legendary_creature() {
+        let reduction = try_parse_cost_reduction(
+            "this ability costs {2} less to activate if you control a legendary creature",
+        )
+        .expect("conditional cost reduction should parse");
+        assert_eq!(reduction.amount_per, 2);
+        assert_eq!(
+            reduction.when,
+            Some(crate::types::ability::ParsedCondition::YouControlLegendaryCreature)
+        );
+    }
+
+    #[test]
+    fn cost_reduction_conditional_opponent_nonbasic_lands() {
+        let reduction = try_parse_cost_reduction(
+            "this ability costs {4} less to activate if an opponent controls four or more nonbasic lands",
+        )
+        .expect("opponent nonbasic land gate should parse");
+        assert_eq!(reduction.amount_per, 4);
+        assert!(reduction.when.is_some());
     }
 
     #[test]

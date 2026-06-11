@@ -10331,12 +10331,18 @@ pub enum CastingRestriction {
 
 /// CR 601.2f: Self-referential cost reduction on an activated ability.
 /// "This ability costs {N} less to activate for each [condition]"
+/// or "…less to activate if [condition]" (flat reduction when the gate is true).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CostReduction {
     /// Generic mana reduced per counted object (the {N} value).
     pub amount_per: u32,
     /// How many objects to count (e.g., legendary creatures you control).
+    /// Ignored when `when` is set — flat `amount_per` applies instead.
     pub count: QuantityExpr,
+    /// CR 601.2f + CR 602.5: flat reduction gated on a restriction condition
+    /// ("costs {N} less to activate if you control a legendary creature").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub when: Option<ParsedCondition>,
 }
 
 /// CR 601.2c + CR 603.3d + CR 608.2d: Whether object/player choices for an

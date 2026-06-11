@@ -11670,8 +11670,17 @@ fn apply_cost_reduction(
     source_id: ObjectId,
 ) {
     if let Some(ref reduction) = ability_def.cost_reduction {
-        let count = super::quantity::resolve_quantity(state, &reduction.count, player, source_id);
-        let reduce_by = (reduction.amount_per as i32 * count).max(0) as u32;
+        let reduce_by = if let Some(ref when) = reduction.when {
+            if super::restrictions::evaluate_condition(state, player, source_id, when) {
+                reduction.amount_per
+            } else {
+                0
+            }
+        } else {
+            let count =
+                super::quantity::resolve_quantity(state, &reduction.count, player, source_id);
+            (reduction.amount_per as i32 * count).max(0) as u32
+        };
         if reduce_by > 0 {
             if let Some(ref mut cost) = ability_def.cost {
                 reduce_generic_in_cost(cost, reduce_by);

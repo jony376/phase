@@ -5935,7 +5935,7 @@ fn parse_unconditional_life_floor_less_than_form(input: &str) -> OracleResult<'_
             nom::error::ErrorKind::Verify,
         )));
     }
-    all_consuming((
+    let (rest, _) = all_consuming((
         tag::<_, _, OracleError<'_>>(" instead"),
         opt(tag::<_, _, OracleError<'_>>(".")),
     ))
@@ -5952,7 +5952,7 @@ fn parse_unconditional_life_floor_to_zero_form(input: &str) -> OracleResult<'_, 
         nom_primitives::parse_number,
     )
     .parse(input)?;
-    all_consuming((
+    let (rest, _) = all_consuming((
         tag::<_, _, OracleError<'_>>(" instead"),
         opt(tag::<_, _, OracleError<'_>>(".")),
     ))

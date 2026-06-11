@@ -11674,7 +11674,7 @@ fn apply_cost_reduction(
         // applies only when its gate holds at cost-determination time. `None` =
         // unconditional (the "for each" scaling form and all legacy reductions).
         let condition_met = reduction.condition.as_ref().is_none_or(|cond| {
-            super::restrictions::evaluate_condition(state, player, source_id, cond)
+            crate::game::restrictions::evaluate_condition(state, player, source_id, cond)
         });
         if condition_met {
             let count =

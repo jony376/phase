@@ -200,7 +200,7 @@ fn parse_replacement_line_inner(text: &str, card_name: &str) -> Option<Replaceme
 
     // --- Library of Leng: "If an effect causes you to discard a card, discard it,
     // but you may put it on top of your library instead of into your graveyard." ---
-    if let Some(def) = parse_discard_to_library_top_replacement(&lower, &text, &text) {
+    if let Some(def) = parse_discard_to_library_top_replacement(&norm_lower, &normalized, &text) {
         return Some(def);
     }
 
@@ -592,6 +592,7 @@ fn parse_discard_to_library_top_replacement(
             .valid_card(TargetFilter::Typed(
                 TypedFilter::default().controller(ControllerRef::You),
             ))
+            .condition(ReplacementCondition::EffectCausedDiscard)
             .description(original_text.to_string()),
     )
 }
@@ -6310,6 +6311,11 @@ mod tests {
             Some(TargetFilter::Typed(
                 TypedFilter::default().controller(ControllerRef::You)
             ))
+        );
+        assert_eq!(
+            def.condition,
+            Some(ReplacementCondition::EffectCausedDiscard),
+            "Library of Leng must gate on effect-caused discards only"
         );
         let execute = def.execute.as_ref().expect("execute present");
         assert!(

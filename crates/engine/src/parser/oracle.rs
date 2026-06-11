@@ -7584,6 +7584,10 @@ mod tests {
                 TypedFilter::default().controller(ControllerRef::You)
             ))
         );
+        assert_eq!(
+            repl.condition,
+            Some(crate::types::ability::ReplacementCondition::EffectCausedDiscard)
+        );
         let execute = repl.execute.as_ref().expect("replacement execute");
         assert!(matches!(
             *execute.effect,

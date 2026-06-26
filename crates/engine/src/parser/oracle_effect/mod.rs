@@ -48882,8 +48882,7 @@ mod tests {
                     tf.type_filters
                 );
                 assert!(
-                    tf.properties
-                        .contains(&FilterProp::IsChosenCreatureType),
+                    tf.properties.contains(&FilterProp::IsChosenCreatureType),
                     "expected IsChosenCreatureType, got {:?}",
                     tf.properties
                 );

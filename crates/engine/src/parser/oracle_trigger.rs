@@ -2736,40 +2736,6 @@ fn parse_unless_return_to_hand(rest: &str) -> Option<AbilityCost> {
     })
 }
 
-/// Parse "where X is ~'s power" / "where X is this creature's power" etc.
-/// Delegates to `nom_quantity::parse_quantity_ref` for the value reference after
-/// stripping the "where X is" prefix.
-fn parse_where_x_is_trigger(text: &str) -> Option<QuantityExpr> {
-    let trimmed = text.trim().trim_start_matches(',').trim();
-    let (rest, ()) = alt((
-        value((), tag::<_, _, OracleError<'_>>("where x is ")),
-        value((), tag("where X is ")),
-    ))
-    .parse(trimmed)
-    .ok()?;
-    let rest_lower = rest.to_lowercase();
-    // Try nom quantity ref combinator first for common patterns
-    if let Ok((_rem, qty)) = nom_quantity::parse_quantity_ref.parse(&rest_lower) {
-        return Some(QuantityExpr::Ref { qty });
-    }
-    // Fall through to keyword-based matching for less common patterns
-    if scan_contains(&rest_lower, "power") {
-        Some(QuantityExpr::Ref {
-            qty: QuantityRef::Power {
-                scope: crate::types::ability::ObjectScope::Source,
-            },
-        })
-    } else if scan_contains(&rest_lower, "toughness") {
-        Some(QuantityExpr::Ref {
-            qty: QuantityRef::Toughness {
-                scope: crate::types::ability::ObjectScope::Source,
-            },
-        })
-    } else {
-        None
-    }
-}
-
 /// CR 603.4: Rewrite any `FilterProp::Another` inside a `TargetFilter` to
 /// `FilterProp::OtherThanTriggerObject` for trigger-scope quantity
 /// comparisons. Recurses through `And`/`Or`/`Not` combinators and `Typed`

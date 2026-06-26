@@ -1632,7 +1632,7 @@ fn strip_constraint_sentences(text: &str) -> String {
     }
 }
 
-/// CR 702.24a + CR 118.12a: Parse mana / energy unless-payment tails after
+/// CR 118.12a + CR 107.4: Parse mana / energy unless-payment tails after
 /// "they pay " / "pays ". Disjunctive "{B} or {3}" lowers to `OneOf` of mana
 /// branches (Lim-Dul's Hex); single-mana, dynamic-{X}, and for-each-scaling
 /// forms are unchanged.
@@ -1669,11 +1669,30 @@ fn parse_unless_mana_payment(cost_str: &str) -> Option<AbilityCost> {
     }
 
     if cost_text == "{x}" || cost_text == "{X}" {
-        let remainder = &trimmed[cost_end..];
-        if let Some(quantity) = parse_where_x_is_trigger(remainder) {
+        let after_cost = &trimmed[cost_end..];
+        if let Some(quantity) = super::oracle_effect::parse_where_x_is(after_cost) {
             return Some(AbilityCost::ManaDynamic { quantity });
         }
-        return None;
+        if tag::<_, _, OracleError<'_>>("where x is ")
+            .parse(
+                after_cost
+                    .trim()
+                    .trim_start_matches(',')
+                    .trim()
+                    .to_lowercase()
+                    .as_str(),
+            )
+            .is_ok()
+        {
+            return None;
+        }
+        return Some(AbilityCost::ManaDynamic {
+            quantity: QuantityExpr::Ref {
+                qty: QuantityRef::Variable {
+                    name: "X".to_string(),
+                },
+            },
+        });
     }
 
     let mana_cost = crate::database::mtgjson::parse_mtgjson_mana_cost(cost_text);
@@ -2390,7 +2409,7 @@ fn parse_unless_they_branch_by_verb(input: &str) -> Option<(AbilityCost, &str)> 
         let (cost, after) = parse_unless_they_discard_cost(rest)?;
         return Some((cost, after));
     }
-    // CR 117.3 + CR 702.24a: "pay(s) {mana}" / "{B} or {3}" disjunction
+    // CR 118.12a + CR 107.4: "pay(s) {mana}" / "{B} or {3}" disjunction
     if let Ok((rest, _)) = alt((tag::<_, _, OracleError<'_>>("pays "), tag("pay "))).parse(input) {
         let boundary = unless_branch_boundary(rest);
         let branch_text = rest[..boundary].trim();

@@ -23092,7 +23092,11 @@ mod tests {
         let AbilityCost::OneOf { costs } = &unless_pay.cost else {
             panic!("cost should be OneOf, got {:?}", unless_pay.cost);
         };
-        assert_eq!(costs.len(), 2, "OneOf should have two mana branches: {costs:?}");
+        assert_eq!(
+            costs.len(),
+            2,
+            "OneOf should have two mana branches: {costs:?}"
+        );
         assert!(
             matches!(&costs[0], AbilityCost::Mana { .. }),
             "first branch should be Mana, got {:?}",

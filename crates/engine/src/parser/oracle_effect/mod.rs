@@ -7845,16 +7845,18 @@ fn try_parse_reveal_until_shares_creature_type(filter_text: &str) -> Option<Targ
     let TargetFilter::Typed(tf) = &filter else {
         return None;
     };
-    tf.properties.iter().any(|p| {
-        matches!(
-            p,
-            FilterProp::SharesQuality {
-                quality: SharedQuality::CreatureType,
-                ..
-            }
-        )
-    })
-    .then_some(filter)
+    tf.properties
+        .iter()
+        .any(|p| {
+            matches!(
+                p,
+                FilterProp::SharesQuality {
+                    quality: SharedQuality::CreatureType,
+                    ..
+                }
+            )
+        })
+        .then_some(filter)
 }
 
 /// Build a [`TargetFilter`] from the bare filter phrase extracted from a `RevealUntil`

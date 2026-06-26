@@ -4042,6 +4042,16 @@ mod tests {
                 &["Instant"][..],
             ),
             (
+                "Reveal cards from the top of your library until you reveal a creature card of the chosen type. Put that card onto the battlefield and the rest on the bottom of your library in a random order.",
+                "Riptide Shapeshifter",
+                &["Creature"][..],
+            ),
+            (
+                "Whenever equipped creature dies, reveal cards from the top of your library until you reveal a creature card that shares a creature type with it, then you may put that card into your hand and the rest on the bottom of your library in a random order.",
+                "Heirloom Blade",
+                &["Artifact"][..],
+            ),
+            (
                 "This creature can't attack unless defending player is poisoned.",
                 "Chained Throatseeker",
                 &["Creature"][..],

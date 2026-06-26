@@ -40,7 +40,8 @@ use crate::types::ability::{
     CoinFlipResult, Comparator, ControllerRef, CounterTriggerFilter, DamageKindFilter,
     DestinationConstraint, Effect, FilterProp, ObjectScope, OriginConstraint, ParsedCondition,
     PlayerFilter, PlayerScope, PtStat, PtValueScope, QuantityExpr, QuantityRef, RenownSubject,
-    SacrificeAggregateStat, SacrificeCost, SacrificeRequirement, StaticCondition,
+    SacrificeAggregateStat, SacrificeCost, SacrificeRequirement, SharedQuality,
+    StaticCondition,
     TapCreaturesRequirement, TargetFilter, TriggerCondition, TriggerConstraint, TriggerDefinition,
     TypeFilter, TypedFilter, UnlessPayModifier, ZoneChangeClause,
 };
@@ -20497,6 +20498,31 @@ mod tests {
         assert_eq!(def.origin, Some(Zone::Battlefield));
         assert_eq!(def.destination, Some(Zone::Graveyard));
         assert_eq!(def.valid_card, Some(TargetFilter::AttachedTo));
+    }
+
+    #[test]
+    fn trigger_heirloom_blade_reveal_until_shares_creature_type() {
+        let def = parse_trigger_line(
+            "Whenever equipped creature dies, reveal cards from the top of your library until you reveal a creature card that shares a creature type with it, then you may put that card into your hand and the rest on the bottom of your library in a random order.",
+            "Heirloom Blade",
+        );
+        assert_eq!(def.mode, TriggerMode::ChangesZone);
+        let Effect::RevealUntil { filter, .. } = def.execute.as_ref().unwrap().effect.as_ref()
+        else {
+            panic!("expected RevealUntil, got {:?}", def.execute);
+        };
+        let TargetFilter::Typed(tf) = filter else {
+            panic!("expected Typed filter, got {filter:?}");
+        };
+        assert!(tf.type_filters.contains(&TypeFilter::Creature));
+        assert!(tf.properties.iter().any(|p| matches!(
+            p,
+            FilterProp::SharesQuality {
+                quality: SharedQuality::CreatureType,
+                reference: Some(reference),
+                ..
+            } if matches!(reference.as_ref(), TargetFilter::AttachedTo)
+        )));
     }
 
     #[test]

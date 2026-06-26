@@ -1632,6 +1632,64 @@ fn strip_constraint_sentences(text: &str) -> String {
     }
 }
 
+/// CR 702.24a + CR 118.12a: Parse mana / energy unless-payment tails after
+/// "they pay " / "pays ". Disjunctive "{B} or {3}" lowers to `OneOf` of mana
+/// branches (Lim-Dul's Hex); single-mana, dynamic-{X}, and for-each-scaling
+/// forms are unchanged.
+fn parse_unless_mana_payment(cost_str: &str) -> Option<AbilityCost> {
+    let trimmed = cost_str.trim().trim_end_matches('.').trim();
+
+    if let Some(costs) = super::oracle_cost::parse_or_separated_mana_costs(trimmed) {
+        return Some(AbilityCost::OneOf {
+            costs: costs
+                .into_iter()
+                .map(|cost| AbilityCost::Mana { cost })
+                .collect(),
+        });
+    }
+
+    let cost_end = trimmed
+        .find(|c: char| c != '{' && c != '}' && !c.is_alphanumeric())
+        .unwrap_or(trimmed.len());
+    let cost_text = trimmed[..cost_end].trim();
+
+    if cost_text.is_empty() || !cost_text.contains('{') {
+        return None;
+    }
+
+    if let Some((amount, rest)) = super::oracle_effect::parse_fixed_energy_unless_cost(cost_text) {
+        if !rest.trim().is_empty() {
+            return None;
+        }
+        return Some(AbilityCost::PayEnergy {
+            amount: QuantityExpr::Fixed {
+                value: amount as i32,
+            },
+        });
+    }
+
+    if cost_text == "{x}" || cost_text == "{X}" {
+        let remainder = &trimmed[cost_end..];
+        if let Some(quantity) = parse_where_x_is_trigger(remainder) {
+            return Some(AbilityCost::ManaDynamic { quantity });
+        }
+        return None;
+    }
+
+    let mana_cost = crate::database::mtgjson::parse_mtgjson_mana_cost(cost_text);
+    if mana_cost == crate::types::mana::ManaCost::NoCost
+        || mana_cost == crate::types::mana::ManaCost::zero()
+    {
+        return None;
+    }
+    if let Some(cost) =
+        super::oracle_effect::parse_unless_for_each_payment(&trimmed[cost_end..], &mana_cost)
+    {
+        return Some(cost);
+    }
+    Some(AbilityCost::Mana { cost: mana_cost })
+}
+
 /// CR 118.12: Detect "unless [player] pays {cost}" in trigger effect text.
 /// Returns (cleaned effect text without the unless clause, optional UnlessPayModifier).
 ///
@@ -1766,50 +1824,8 @@ fn extract_unless_pay_modifier(
         );
     }
 
-    // Extract cost symbols
-    let cost_end = cost_str
-        .find(|c: char| c != '{' && c != '}' && !c.is_alphanumeric())
-        .unwrap_or(cost_str.len());
-    let cost_text = cost_str[..cost_end].trim();
-
-    if cost_text.is_empty() || !cost_text.contains('{') {
+    let Some(cost) = parse_unless_mana_payment(cost_str) else {
         return (text.to_string(), None);
-    }
-
-    // Determine the cost type
-    let cost = if let Some((amount, rest)) =
-        super::oracle_effect::parse_fixed_energy_unless_cost(cost_text)
-    {
-        if !rest.trim().is_empty() {
-            return (text.to_string(), None);
-        }
-        AbilityCost::PayEnergy {
-            amount: QuantityExpr::Fixed {
-                value: amount as i32,
-            },
-        }
-    } else if cost_text == "{x}" || cost_text == "{X}" {
-        // Check for "where X is" clause
-        let remainder = &cost_str[cost_end..];
-        if let Some(quantity) = parse_where_x_is_trigger(remainder) {
-            AbilityCost::ManaDynamic { quantity }
-        } else {
-            return (text.to_string(), None);
-        }
-    } else {
-        let mana_cost = crate::database::mtgjson::parse_mtgjson_mana_cost(cost_text);
-        if mana_cost == crate::types::mana::ManaCost::NoCost
-            || mana_cost == crate::types::mana::ManaCost::zero()
-        {
-            return (text.to_string(), None);
-        }
-        if let Some(cost) =
-            super::oracle_effect::parse_unless_for_each_payment(&cost_str[cost_end..], &mana_cost)
-        {
-            cost
-        } else {
-            AbilityCost::Mana { cost: mana_cost }
-        }
     };
 
     // Payer was already determined by the combinator above.
@@ -2374,8 +2390,13 @@ fn parse_unless_they_branch_by_verb(input: &str) -> Option<(AbilityCost, &str)> 
         let (cost, after) = parse_unless_they_discard_cost(rest)?;
         return Some((cost, after));
     }
-    // CR 119.4: "pay(s) N life"
+    // CR 117.3 + CR 702.24a: "pay(s) {mana}" / "{B} or {3}" disjunction
     if let Ok((rest, _)) = alt((tag::<_, _, OracleError<'_>>("pays "), tag("pay "))).parse(input) {
+        let boundary = unless_branch_boundary(rest);
+        let branch_text = rest[..boundary].trim();
+        if let Some(cost) = parse_unless_mana_payment(branch_text) {
+            return Some((cost, &rest[boundary..]));
+        }
         let (cost, after) = parse_unless_they_pay_life(rest)?;
         return Some((cost, after));
     }
@@ -23057,6 +23078,30 @@ mod tests {
             matches!(unless_pay.cost, AbilityCost::Mana { .. }),
             "cost should be Fixed mana, got {:?}",
             unless_pay.cost
+        );
+    }
+
+    #[test]
+    fn trigger_unless_they_pay_disjunctive_mana_builds_one_of() {
+        let def = parse_trigger_line(
+            "At the beginning of your upkeep, for each player, this enchantment deals 1 damage to that player unless they pay {B} or {3}.",
+            "Lim-Dul's Hex",
+        );
+        let unless_pay = def.unless_pay.as_ref().expect("should have unless_pay");
+        assert_eq!(unless_pay.payer, TargetFilter::TriggeringPlayer);
+        let AbilityCost::OneOf { costs } = &unless_pay.cost else {
+            panic!("cost should be OneOf, got {:?}", unless_pay.cost);
+        };
+        assert_eq!(costs.len(), 2, "OneOf should have two mana branches: {costs:?}");
+        assert!(
+            matches!(&costs[0], AbilityCost::Mana { .. }),
+            "first branch should be Mana, got {:?}",
+            costs[0]
+        );
+        assert!(
+            matches!(&costs[1], AbilityCost::Mana { .. }),
+            "second branch should be Mana, got {:?}",
+            costs[1]
         );
     }
 

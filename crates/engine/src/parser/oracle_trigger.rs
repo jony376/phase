@@ -21,7 +21,6 @@ use super::oracle_nom::filter::{parse_enters_origin_zone, parse_with_property};
 use super::oracle_nom::primitives::{
     self as nom_primitives, scan_contains, scan_preceded, scan_split_at_phrase,
 };
-use super::oracle_nom::quantity as nom_quantity;
 use super::oracle_nom::target::parse_type_phrase as parse_type_phrase_nom;
 use super::oracle_static::parse_commander_subject_filter_prefix;
 use super::oracle_target::{

@@ -21917,6 +21917,11 @@ pub(super) fn parse_unless_payment(lower: &str) -> Option<AbilityCost> {
             return Some(cost);
         }
     }
+    // CR 118.12a: "unless [target's controller] has [~] deal N damage to them"
+    // (Molten Influence and other counter spells with damage alternatives).
+    if let Some(cost) = parse_unless_have_deal_damage_cost(after_unless) {
+        return Some(cost);
+    }
     // CR 118.12 / CR 119.4 / CR 608.2c: non-mana alternative costs — "pays N
     // life", "sacrifices a [filter]", "discards a card", and `or`-disjunctions
     // thereof. Normalize the counter subject to the "they" pronoun the shared

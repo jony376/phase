@@ -7724,10 +7724,7 @@ fn parse_reveal_until_active_filter_text(input: &str) -> OracleResult<'_, &str> 
         // ("…creature card that shares a creature type with it, then you may…"
         // — Heirloom Blade). Stop before ", then" so the shares-type tail
         // reaches `build_reveal_until_filter` intact.
-        all_consuming(terminated(
-            take_until(", then"),
-            tag(", then"),
-        )),
+        all_consuming(terminated(take_until(", then"), tag(", then"))),
         all_consuming(terminated(
             take_until(" cards"),
             (tag(" cards"), opt(tag("."))),

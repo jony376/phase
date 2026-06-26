@@ -1673,15 +1673,10 @@ fn parse_unless_mana_payment(cost_str: &str) -> Option<AbilityCost> {
         if let Some(quantity) = super::oracle_effect::parse_where_x_is(after_cost) {
             return Some(AbilityCost::ManaDynamic { quantity });
         }
+        let after_x = after_cost.trim().trim_start_matches(',').trim();
+        let after_x_lower = after_x.to_lowercase();
         if tag::<_, _, OracleError<'_>>("where x is ")
-            .parse(
-                after_cost
-                    .trim()
-                    .trim_start_matches(',')
-                    .trim()
-                    .to_lowercase()
-                    .as_str(),
-            )
+            .parse(after_x_lower.as_str())
             .is_ok()
         {
             return None;

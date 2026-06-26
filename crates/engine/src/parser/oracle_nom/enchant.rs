@@ -20,8 +20,8 @@ use crate::parser::oracle_util::parse_subtype;
 use crate::types::ability::{
     AttachmentKind, ControllerRef, FilterProp, TargetFilter, TypeFilter, TypedFilter,
 };
-use crate::types::keywords::Keyword;
 use crate::types::card_type::{noncreature_subtype_set, SubtypeSet};
+use crate::types::keywords::Keyword;
 
 /// CR 702.5a: One enchantable core-type or supported subtype token. Core
 /// types and established basic-land subtype legs stay as literal nom arms;

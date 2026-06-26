@@ -2887,6 +2887,7 @@ fn parse_for_each_clause_ref_with_they_controller(
         parse_for_each_one_life_changed,
         parse_for_each_opponents_life_change,
         parse_counter_added_this_turn_for_each,
+        parse_color_of_object_it_targets_for_each,
         parse_object_colors_for_each,
         parse_object_name_word_count_for_each,
         parse_object_typeline_component_count_for_each,
@@ -3350,6 +3351,21 @@ fn parse_mana_symbols_in_object_mana_cost_for_each(input: &str) -> OracleResult<
     let (rest, scope) = parse_object_possessive_scope(rest)?;
     let (rest, _) = tag(" mana cost").parse(rest)?;
     Ok((rest, QuantityRef::ManaSymbolsInManaCost { scope, color }))
+}
+
+/// CR 105.1 + CR 601.2f + CR 115.1: "for each color[s] of the <type> it
+/// targets" (Dragonfire Blade equip discount). Target-anaphoric color count
+/// for activation cost reduction keyed to the chosen equip target.
+fn parse_color_of_object_it_targets_for_each(input: &str) -> OracleResult<'_, QuantityRef> {
+    let (rest, _) = alt((tag("color of "), tag("colors of "))).parse(input)?;
+    let (rest, scope) = alt((
+        value(ObjectScope::Target, tag("the creature it targets")),
+        value(ObjectScope::Target, tag("the permanent it targets")),
+        value(ObjectScope::Target, tag("a creature it targets")),
+        value(ObjectScope::Target, tag("a permanent it targets")),
+    ))
+    .parse(rest)?;
+    Ok((rest, QuantityRef::ObjectColorCount { scope }))
 }
 
 /// CR 105.1 + CR 105.2: Parse "for each [of] <object>'s colors" into a
@@ -5269,6 +5285,20 @@ mod tests {
         }
 
         let (rest, q) = parse_for_each("for each of that creature's colors").unwrap();
+        assert_eq!(
+            q,
+            QuantityRef::ObjectColorCount {
+                scope: crate::types::ability::ObjectScope::Target
+            }
+        );
+        assert_eq!(rest, "");
+    }
+
+    /// CR 105.1 + CR 601.2f + CR 115.1: Dragonfire Blade equip discount.
+    #[test]
+    fn test_parse_for_each_color_of_creature_it_targets() {
+        let (rest, q) =
+            parse_for_each_clause_ref("color of the creature it targets").unwrap();
         assert_eq!(
             q,
             QuantityRef::ObjectColorCount {

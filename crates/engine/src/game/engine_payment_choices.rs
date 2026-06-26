@@ -1042,7 +1042,9 @@ pub(super) fn handle_unless_payment(
             | AbilityCost::Reveal { .. }
             | AbilityCost::Behold { .. }
             | AbilityCost::Waterbend { .. }
-            | AbilityCost::NinjutsuFamily { .. }
+            | AbilityCost::NinjutsuFamily { .. } => {
+                payment_failed = true;
+            }
             // CR 118.12a: "unless [target's controller] has [~] deal N damage to
             // them" — the payer takes damage from the ability source instead of
             // the primary effect (Blazing Salvo, Lava Blister, Barbarian Bully).

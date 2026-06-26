@@ -7720,6 +7720,14 @@ fn parse_reveal_until_active_filter_text(input: &str) -> OracleResult<'_, &str> 
     // form) is tried before singular " card" so "permanent cards" strips the full
     // noun, not "permanent" + a stray "s".
     alt((
+        // CR 701.20a + CR 608.2c: chained continuation after the until-filter
+        // ("…creature card that shares a creature type with it, then you may…"
+        // — Heirloom Blade). Stop before ", then" so the shares-type tail
+        // reaches `build_reveal_until_filter` intact.
+        all_consuming(terminated(
+            take_until(", then"),
+            tag(", then"),
+        )),
         all_consuming(terminated(
             take_until(" cards"),
             (tag(" cards"), opt(tag("."))),

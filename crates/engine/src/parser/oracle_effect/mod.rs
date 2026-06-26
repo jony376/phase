@@ -7814,16 +7814,19 @@ fn build_reveal_until_disjunct_filter(fragment: &str) -> TargetFilter {
 
 /// CR 701.20a + CR 604.3: Reveal-until filter "<core> card[s] of the chosen type".
 fn try_parse_reveal_until_card_of_chosen_creature_type(filter_text: &str) -> Option<TargetFilter> {
-    let core = filter_text
-        .strip_suffix(" card of the chosen type")
-        .or_else(|| filter_text.strip_suffix(" cards of the chosen type"))
-        .or_else(|| filter_text.strip_suffix(" card of that type"))
-        .or_else(|| filter_text.strip_suffix(" cards of that type"))
-        .or_else(|| filter_text.strip_suffix(" of the chosen type"))
-        .or_else(|| filter_text.strip_suffix(" of that type"))?;
-    if core != "creature" {
-        return None;
-    }
+    all_consuming(terminated(
+        tag::<_, _, OracleError<'_>>("creature"),
+        alt((
+            tag(" card of the chosen type"),
+            tag(" cards of the chosen type"),
+            tag(" card of that type"),
+            tag(" cards of that type"),
+            tag(" of the chosen type"),
+            tag(" of that type"),
+        )),
+    ))
+    .parse(filter_text)
+    .ok()?;
     Some(TargetFilter::Typed(
         TypedFilter::creature().properties(vec![FilterProp::IsChosenCreatureType]),
     ))
@@ -7831,15 +7834,27 @@ fn try_parse_reveal_until_card_of_chosen_creature_type(filter_text: &str) -> Opt
 
 /// CR 701.20a + CR 603.10a: Reveal-until filter sharing a creature type with "it".
 fn try_parse_reveal_until_shares_creature_type(filter_text: &str) -> Option<TargetFilter> {
-    if !nom_primitives::scan_contains(filter_text, "shares a creature type with it") {
-        return None;
-    }
     let mut ctx = ParseContext {
         subject: Some(TargetFilter::AttachedTo),
         ..Default::default()
     };
     let (filter, rem) = parse_type_phrase_with_ctx(filter_text, &mut ctx);
-    rem.trim().is_empty().then_some(filter)
+    if !rem.trim().is_empty() {
+        return None;
+    }
+    let TargetFilter::Typed(tf) = &filter else {
+        return None;
+    };
+    tf.properties.iter().any(|p| {
+        matches!(
+            p,
+            FilterProp::SharesQuality {
+                quality: SharedQuality::CreatureType,
+                ..
+            }
+        )
+    })
+    .then_some(filter)
 }
 
 /// Build a [`TargetFilter`] from the bare filter phrase extracted from a `RevealUntil`

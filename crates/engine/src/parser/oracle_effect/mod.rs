@@ -21996,12 +21996,15 @@ fn parse_deal_damage_to_them_tail(input: &str) -> Option<()> {
 }
 
 /// CR 118.12a: "unless [that object's|its] controller has [~] deal N damage to
-/// them" (Blazing Salvo, Lava Blister) — the controller may take the damage
-/// instead of the primary effect.
+/// them" (Blazing Salvo, Lava Blister, Molten Influence) — the controller may
+/// take the damage instead of the primary effect.
 fn parse_unless_have_deal_damage_cost(after_unless: &str) -> Option<AbilityCost> {
     let (rest, _) = alt((
         tag::<_, _, OracleError<'_>>("that creature's controller has "),
         tag("its controller has "),
+        tag("that permanent's controller has "),
+        tag("that land's controller has "),
+        tag("that spell's controller has "),
     ))
     .parse(after_unless)
     .ok()?;
@@ -28224,6 +28227,35 @@ mod tests {
                     ..
                 } => {}
                 other => panic!("expected DealDamage 6 to payer, got {other:?}"),
+            },
+            other => panic!("expected EffectCost, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn molten_influence_unless_have_deal_damage() {
+        let def = parse_effect_chain(
+            "Counter target instant or sorcery spell unless that spell's controller has Molten Influence deal 4 damage to them.",
+            AbilityKind::Spell,
+        );
+        assert!(
+            matches!(*def.effect, Effect::Counter { .. }),
+            "primary should counter the spell, got {:?}",
+            def.effect
+        );
+        let unless_pay = def
+            .unless_pay
+            .as_ref()
+            .expect("Molten Influence must attach unless_pay");
+        assert_eq!(unless_pay.payer, TargetFilter::ParentTargetController);
+        match &unless_pay.cost {
+            AbilityCost::EffectCost { effect } => match effect.as_ref() {
+                Effect::DealDamage {
+                    amount: QuantityExpr::Fixed { value: 4 },
+                    target: TargetFilter::Player,
+                    ..
+                } => {}
+                other => panic!("expected DealDamage 4 to payer, got {other:?}"),
             },
             other => panic!("expected EffectCost, got {other:?}"),
         }

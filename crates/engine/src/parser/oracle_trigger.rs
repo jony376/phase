@@ -20520,7 +20520,7 @@ mod tests {
                 quality: SharedQuality::CreatureType,
                 reference: Some(reference),
                 ..
-            } if matches!(reference.as_ref(), TargetFilter::AttachedTo)
+            } if matches!(reference.as_ref(), TargetFilter::TriggeringSource)
         )));
     }
 

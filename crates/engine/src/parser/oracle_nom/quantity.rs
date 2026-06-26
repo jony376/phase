@@ -5297,8 +5297,7 @@ mod tests {
     /// CR 105.1 + CR 601.2f + CR 115.1: Dragonfire Blade equip discount.
     #[test]
     fn test_parse_for_each_color_of_creature_it_targets() {
-        let (rest, q) =
-            parse_for_each_clause_ref("color of the creature it targets").unwrap();
+        let (rest, q) = parse_for_each_clause_ref("color of the creature it targets").unwrap();
         assert_eq!(
             q,
             QuantityRef::ObjectColorCount {

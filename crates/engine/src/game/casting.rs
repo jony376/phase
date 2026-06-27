@@ -21191,9 +21191,8 @@ mod tests {
     #[test]
     fn drag_to_the_underworld_devotion_cost_reduction_applies_from_hand() {
         use crate::types::ability::{DevotionColors, QuantityRef};
-        use crate::types::mana::ManaCostShard;
+        use crate::types::mana::{ManaColor, ManaCostShard};
         use crate::types::statics::StaticMode;
-        use crate::types::mana::ManaColor;
 
         let mut state = setup_game_at_main_phase();
         let parsed = crate::parser::oracle::parse_oracle_text(
@@ -21204,7 +21203,11 @@ mod tests {
             &[String::from("Instant")],
             &[],
         );
-        assert_eq!(parsed.statics.len(), 1, "expected one self-spell cost static");
+        assert_eq!(
+            parsed.statics.len(),
+            1,
+            "expected one self-spell cost static"
+        );
         assert!(
             matches!(
                 parsed.statics[0].mode,

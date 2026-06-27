@@ -26,7 +26,7 @@ use super::oracle_ir::diagnostic::{CascadeSlot, OracleDiagnostic};
 use crate::types::ability::{
     AbilityCondition, AbilityDefinition, ActivationRestriction, Comparator, ContinuousModification,
     CopyRetargetPermission, Effect, FilterProp, ModalSelectionConstraint, OpponentMayScope,
-    PlayerFilter, QuantityExpr, QuantityRef, ReplacementDefinition, ReplacementMode,
+    PlayerFilter, QuantityExpr, ReplacementDefinition, ReplacementMode,
     StaticDefinition, TargetFilter, TriggerDefinition,
 };
 use crate::types::game_state::RetargetScope;
@@ -4172,12 +4172,16 @@ mod tests {
             "Drag to the Underworld",
             &["Instant"],
         );
-        assert_eq!(parsed.statics.len(), 1, "expected one self-spell cost static");
+        assert_eq!(
+            parsed.statics.len(),
+            1,
+            "expected one self-spell cost static"
+        );
         assert!(
             matches!(
                 parsed.statics[0].mode,
                 StaticMode::ModifyCost {
-                    dynamic_count: Some(QuantityRef::Devotion { .. }),
+                    dynamic_count: Some(crate::types::ability::QuantityRef::Devotion { .. }),
                     ..
                 }
             ),

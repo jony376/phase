@@ -2537,10 +2537,9 @@ fn drag_to_the_underworld_self_cost_reduction_binds_devotion_to_black() {
     use crate::types::ability::DevotionColors;
     use crate::types::mana::ManaColor;
 
-    let def = parse_static_line(
-        "This spell costs {X} less to cast, where X is your devotion to black.",
-    )
-    .unwrap();
+    let def =
+        parse_static_line("This spell costs {X} less to cast, where X is your devotion to black.")
+            .unwrap();
 
     let StaticMode::ModifyCost {
         mode: CostModifyMode::Reduce,
@@ -2552,7 +2551,10 @@ fn drag_to_the_underworld_self_cost_reduction_binds_devotion_to_black() {
         ..
     } = def.mode
     else {
-        panic!("expected devotion-bound self-spell ReduceCost, got {:?}", def.mode);
+        panic!(
+            "expected devotion-bound self-spell ReduceCost, got {:?}",
+            def.mode
+        );
     };
     assert_eq!(colors, vec![ManaColor::Black]);
     assert!(matches!(def.affected, Some(TargetFilter::SelfRef)));

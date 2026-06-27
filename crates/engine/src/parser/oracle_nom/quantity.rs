@@ -2881,8 +2881,7 @@ pub(crate) fn parse_for_each_clause_ref_with_context<'a>(
 
 /// CR 608.2c + CR 609.3: Read the Runes — "for each card[s] drawn this way".
 fn parse_for_each_card_drawn_this_way(input: &str) -> OracleResult<'_, QuantityRef> {
-    let (rest, _) = alt((tag("card drawn this way"), tag("cards drawn this way")))
-    .parse(input)?;
+    let (rest, _) = alt((tag("card drawn this way"), tag("cards drawn this way"))).parse(input)?;
     Ok((rest, QuantityRef::EventContextAmount))
 }
 
@@ -2893,47 +2892,47 @@ fn parse_for_each_clause_ref_with_they_controller(
     alt((
         parse_for_each_card_drawn_this_way,
         alt((
-        parse_for_each_one_life_changed,
-        parse_for_each_opponents_life_change,
-        parse_counter_added_this_turn_for_each,
-        parse_color_of_object_for_each,
-        parse_object_colors_for_each,
-        parse_object_name_word_count_for_each,
-        parse_object_typeline_component_count_for_each,
-        parse_mana_symbols_in_object_mana_cost_for_each,
-        parse_distinct_card_types_in_zone,
-        parse_foretold_cards_owned_in_exile,
-        parse_zone_card_count,
-        parse_for_each_attached_to_source,
-        // CR 201.2: "for each differently named <type>" — distinct-by-name
-        // iteration. Must precede generic type-filter arm.
-        parse_for_each_differently_named,
-        // CR 201.2 + CR 603.4: "for each different <power|mana value> among <type>"
-        // — distinct-by-quality count (Golden Ratio, Lunar Insight, Sudden
-        // Insight). Must precede the generic type-filter arm so the "different
-        // <quality>" adjective prefix is consumed before the bare type word.
-        parse_distinct_quality_among_objects,
-        // CR 700.8: "creature in your party" must precede the generic
-        // "<type> you control" arm — same reason as in
-        // `parse_number_of_inner`.
-        parse_creature_in_party_for_each,
-        parse_player_counter_ref_tail,
-        // CR 700.4: "creature that died this turn" / "creature that
-        // died under your control this turn" — event-based count of dies-events
-        // tracked in `state.zone_changes_this_turn`. Must precede
-        // `parse_for_each_controlled_type` since the leading "creature" token
-        // would otherwise commit the simple `<type> you control` arm.
-        parse_for_each_subtype_died_this_turn,
-        parse_for_each_creature_died_this_turn,
-        // CR 701.21a: "[type] you['ve] sacrificed this turn" — event-based count
-        // of sacrifice events. Must precede `parse_for_each_controlled_type` so the
-        // leading type token does not commit to the generic `<type> you control` arm.
-        parse_for_each_sacrificed_this_turn,
-        // CR 400.7 + CR 603.10a: "creature that left the battlefield under your
-        // control this turn" — destination-agnostic zone-change count, distinct
-        // from the graveyard-only "died" arm above.
-        parse_for_each_creature_left_battlefield_this_turn,
-        parse_entered_this_turn_ref,
+            parse_for_each_one_life_changed,
+            parse_for_each_opponents_life_change,
+            parse_counter_added_this_turn_for_each,
+            parse_color_of_object_for_each,
+            parse_object_colors_for_each,
+            parse_object_name_word_count_for_each,
+            parse_object_typeline_component_count_for_each,
+            parse_mana_symbols_in_object_mana_cost_for_each,
+            parse_distinct_card_types_in_zone,
+            parse_foretold_cards_owned_in_exile,
+            parse_zone_card_count,
+            parse_for_each_attached_to_source,
+            // CR 201.2: "for each differently named <type>" — distinct-by-name
+            // iteration. Must precede generic type-filter arm.
+            parse_for_each_differently_named,
+            // CR 201.2 + CR 603.4: "for each different <power|mana value> among <type>"
+            // — distinct-by-quality count (Golden Ratio, Lunar Insight, Sudden
+            // Insight). Must precede the generic type-filter arm so the "different
+            // <quality>" adjective prefix is consumed before the bare type word.
+            parse_distinct_quality_among_objects,
+            // CR 700.8: "creature in your party" must precede the generic
+            // "<type> you control" arm — same reason as in
+            // `parse_number_of_inner`.
+            parse_creature_in_party_for_each,
+            parse_player_counter_ref_tail,
+            // CR 700.4: "creature that died this turn" / "creature that
+            // died under your control this turn" — event-based count of dies-events
+            // tracked in `state.zone_changes_this_turn`. Must precede
+            // `parse_for_each_controlled_type` since the leading "creature" token
+            // would otherwise commit the simple `<type> you control` arm.
+            parse_for_each_subtype_died_this_turn,
+            parse_for_each_creature_died_this_turn,
+            // CR 701.21a: "[type] you['ve] sacrificed this turn" — event-based count
+            // of sacrifice events. Must precede `parse_for_each_controlled_type` so the
+            // leading type token does not commit to the generic `<type> you control` arm.
+            parse_for_each_sacrificed_this_turn,
+            // CR 400.7 + CR 603.10a: "creature that left the battlefield under your
+            // control this turn" — destination-agnostic zone-change count, distinct
+            // from the graveyard-only "died" arm above.
+            parse_for_each_creature_left_battlefield_this_turn,
+            parse_entered_this_turn_ref,
         )),
     ))
     .or(alt((

@@ -7,7 +7,7 @@ use engine::game::scenario::{GameScenario, P0, P1};
 use engine::types::actions::GameAction;
 use engine::types::game_state::CastPaymentMode;
 use engine::types::game_state::WaitingFor;
-use engine::types::identifiers::{CardId, ObjectId};
+use engine::types::identifiers::ObjectId;
 use engine::types::mana::{ManaCost, ManaCostShard, ManaType, ManaUnit};
 use engine::types::phase::Phase;
 use engine::types::zones::Zone;
@@ -90,11 +90,7 @@ fn setup_at_unless_prompt() -> (engine::game::scenario::GameRunner, ObjectId, Ob
     let mut runner = scenario.build();
     add_mana(
         &mut runner,
-        &[
-            ManaType::Colorless,
-            ManaType::Colorless,
-            ManaType::Blue,
-        ],
+        &[ManaType::Colorless, ManaType::Colorless, ManaType::Blue],
     );
     cast_decoy_gambit_to_unless_prompt(&mut runner, gambit, creature);
     (runner, gambit, creature)

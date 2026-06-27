@@ -312,8 +312,7 @@ pub(crate) fn try_parse_cost_modification(text: &str, lower: &str) -> Option<Sta
         peel_leading_cost_modifier_condition(TextPair::new(text, lower));
     let text = cost_text.original;
     let lower = cost_text.lower;
-    let cast_this_way_variant = lower
-        .contains(" to cast this way")
+    let cast_this_way_variant = nom_primitives::scan_contains(lower, " to cast this way")
         .then_some(crate::types::game_state::CastingVariant::Flashback);
 
     let is_raise = nom_primitives::scan_contains(lower, "more to cast")

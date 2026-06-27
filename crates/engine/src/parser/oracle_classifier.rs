@@ -884,7 +884,10 @@ mod tests {
         let (flashback, reduction) =
             split_flashback_trailing_self_spell_cost_reduction(line, &lower).unwrap();
         assert_eq!(flashback, "Flashback {8}{R}{R}");
-        assert!(reduction.starts_with("This spell costs {X} less to cast this way"));
+        assert_eq!(
+            reduction,
+            "This spell costs {X} less to cast this way, where X is the greatest mana value of a commander you own on the battlefield or in the command zone."
+        );
     }
 
     #[test]

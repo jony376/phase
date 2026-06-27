@@ -4147,9 +4147,10 @@ mod tests {
             &["Artifact"],
         );
         assert!(
-            parsed.parse_warnings.iter().all(|warning| {
-                !matches!(warning, OracleDiagnostic::SwallowedClause { .. })
-            }),
+            parsed
+                .parse_warnings
+                .iter()
+                .all(|warning| { !matches!(warning, OracleDiagnostic::SwallowedClause { .. }) }),
             "Progenitor's Icon must not trigger swallowed clause warnings: {:?}",
             parsed.parse_warnings
         );

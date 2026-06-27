@@ -2063,7 +2063,10 @@ fn parse_next_spell_subject(input: &str) -> OracleResult<'_, (PlayerScope, bool)
             tag("of the chosen type you cast this turn "),
         ),
         value((PlayerScope::Target, false), tag("they cast this turn ")),
-        value((PlayerScope::Target, false), tag("that player casts this turn ")),
+        value(
+            (PlayerScope::Target, false),
+            tag("that player casts this turn "),
+        ),
     ))
     .parse(input)
 }
@@ -2082,9 +2085,7 @@ fn compose_chosen_type_next_spell_filter(
         return type_prefix;
     }
     Some(match type_prefix {
-        Some(TargetFilter::Typed(mut tf))
-            if tf.type_filters.contains(&TypeFilter::Creature) =>
-        {
+        Some(TargetFilter::Typed(mut tf)) if tf.type_filters.contains(&TypeFilter::Creature) => {
             tf.properties.push(FilterProp::IsChosenCreatureType);
             TargetFilter::Typed(tf)
         }
@@ -2095,7 +2096,7 @@ fn compose_chosen_type_next_spell_filter(
         None => TargetFilter::Typed(
             TypedFilter::default().properties(vec![FilterProp::IsChosenCreatureType]),
         ),
-        other => other,
+        Some(filter) => filter,
     })
 }
 
@@ -2150,7 +2151,7 @@ fn try_parse_grant_next_spell_ability(tp: TextPair) -> Option<ParsedEffectClause
             Some(filter)
         }
     };
-    let mut spell_filter = compose_chosen_type_next_spell_filter(type_prefix, chosen_type_subject);
+    let spell_filter = compose_chosen_type_next_spell_filter(type_prefix, chosen_type_subject);
 
     // Now parse the ability: "can't be countered", "has convoke", "can be cast as though it had flash"
     // CR 601.2f: "can't be countered"

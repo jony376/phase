@@ -2214,7 +2214,7 @@ pub(crate) fn parse_spell_target_has_superlative(
     let (rest, _) = tag::<_, _, OracleError<'_>>(" among ").parse(rest)?;
     let (filter, remainder) = parse_type_phrase(rest);
     if !remainder.trim().is_empty() || matches!(filter, TargetFilter::Any) {
-        return Err(oracle_err(rest));
+        return Err(oracle_err(remainder));
     }
     let lhs_qty = match property {
         ObjectProperty::Power => QuantityRef::Power {
@@ -2226,13 +2226,13 @@ pub(crate) fn parse_spell_target_has_superlative(
         ObjectProperty::ManaValue => QuantityRef::ObjectManaValue {
             scope: ObjectScope::Target,
         },
-        ObjectProperty::ManaSymbolCount(_) => return Err(oracle_err(rest)),
+        ObjectProperty::ManaSymbolCount(_) => return Err(oracle_err(remainder)),
     };
     // "Has the least/greatest" allows ties — use LE/GE, not strict LT/GT.
     let comparator = match aggregate {
         AggregateFunction::Min => Comparator::LE,
         AggregateFunction::Max => Comparator::GE,
-        AggregateFunction::Sum => return Err(oracle_err(rest)),
+        AggregateFunction::Sum => return Err(oracle_err(remainder)),
     };
     Ok((
         rest,

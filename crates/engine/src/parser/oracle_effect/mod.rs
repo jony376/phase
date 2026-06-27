@@ -49897,7 +49897,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "known: prefix-form 'For each [unrecognized clause], <body>' fails to thread subject onto Pump target — body Pump retains target=Any sentinel because parse_for_each_clause doesn't recognize 'counter removed' and the strip_for_each_prefix bail-out short-circuits subject threading. Tracked as a follow-up."]
     fn for_each_prefix_pump_threads_self_ref_target() {
         // Blademane Baku: "For each counter removed, this creature gets +2/+0
         // until end of turn" — prefix-form for-each. The Pump's target should

@@ -14696,7 +14696,10 @@ mod tests {
         let mut unless_prompts = 0;
         while matches!(
             state.waiting_for,
-            WaitingFor::UnlessPayment { player: PlayerId(0), .. }
+            WaitingFor::UnlessPayment {
+                player: PlayerId(0),
+                ..
+            }
         ) {
             unless_prompts += 1;
             apply_as_current(&mut state, GameAction::PayUnlessCost { pay: false }).unwrap();

@@ -6572,7 +6572,7 @@ mod tests {
     /// binds repeat count to the parent draw via `EventContextAmount`.
     #[test]
     fn card_drawn_this_way_uses_event_context_amount() {
-        let (rest, qty) = parse_for_each_clause_ref("card drawn this way").unwrap();
+        let (rest, qty) = nom_quantity::parse_for_each_clause_ref("card drawn this way").unwrap();
         assert!(rest.is_empty());
         assert_eq!(qty, QuantityRef::EventContextAmount);
     }

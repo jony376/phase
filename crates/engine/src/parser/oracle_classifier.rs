@@ -48,6 +48,26 @@ pub(crate) fn is_flashback_equal_mana_cost(lower: &str) -> bool {
         && scan_contains(lower, "mana cost")
 }
 
+/// CR 702.34a + CR 601.2f: Split a compound flashback line that also carries a
+/// self-spell cost reduction (Visions of Ruin: "Flashback {8}{R}{R}. This spell
+/// costs {X} less to cast this way, …").
+pub(crate) fn split_flashback_trailing_self_spell_cost_reduction<'a>(
+    line: &'a str,
+    lower: &'a str,
+) -> Option<(&'a str, &'a str)> {
+    for marker in [". this spell costs ", ". this card costs "] {
+        let Some(idx) = lower.find(marker) else {
+            continue;
+        };
+        let flashback_part = line[..idx].trim();
+        let reduction_part = line[idx + 1..].trim();
+        if lower_starts_with(lower, "flashback") {
+            return Some((flashback_part, reduction_part));
+        }
+    }
+    None
+}
+
 pub(crate) fn is_defiler_cost_pattern(lower: &str) -> bool {
     lower_starts_with(lower, "as an additional cost to cast ")
         && !scan_contains(lower, "this spell")
@@ -855,6 +875,16 @@ mod tests {
     fn unquoted_cant_block_static_unchanged() {
         // No quotes → fast path → classification unchanged.
         assert!(is_static_pattern("creatures you control can't block"));
+    }
+
+    #[test]
+    fn split_flashback_trailing_self_spell_cost_reduction_splits_visions_line() {
+        let line = "Flashback {8}{R}{R}. This spell costs {X} less to cast this way, where X is the greatest mana value of a commander you own on the battlefield or in the command zone.";
+        let lower = line.to_lowercase();
+        let (flashback, reduction) =
+            split_flashback_trailing_self_spell_cost_reduction(line, &lower).unwrap();
+        assert_eq!(flashback, "Flashback {8}{R}{R}");
+        assert!(reduction.starts_with("This spell costs {X} less to cast this way"));
     }
 
     #[test]

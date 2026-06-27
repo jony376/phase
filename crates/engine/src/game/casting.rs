@@ -4684,7 +4684,13 @@ fn prepare_spell_cast_with_variant_override_inner(
 
     // CR 601.2f: Apply every cost modifier (self-spell statics, battlefield statics,
     // affinity, one-shot reductions, cost floor) in CR-correct order.
-    apply_all_cost_modifiers(state, player, object_id, &mut mana_cost);
+    apply_all_cost_modifiers(
+        state,
+        player,
+        object_id,
+        &mut mana_cost,
+        Some(casting_variant),
+    );
 
     // CR 702.96b-c: When casting with Overload, transform the spell's ability
     // tree so every target-bearing effect is promoted to its all-matching
@@ -4772,6 +4778,7 @@ fn apply_non_floor_cost_modifiers(
     player: PlayerId,
     object_id: ObjectId,
     mana_cost: &mut ManaCost,
+    casting_variant: Option<CastingVariant>,
 ) {
     // CR 601.2f: A spell cast via a `PlayFromExile` grant may carry a printed
     // cost increase ("Each spell cast this way costs {N} more to cast." —
@@ -4787,7 +4794,8 @@ fn apply_non_floor_cost_modifiers(
     // CR 601.2f: collect self-spell statics ("This spell costs
     // {N} less ...") and battlefield statics together so all increases apply
     // before any reductions across both passes.
-    let mut collected = collect_self_spell_cost_modifiers(state, player, object_id, None, false);
+    let mut collected =
+        collect_self_spell_cost_modifiers(state, player, object_id, None, false, casting_variant);
     collected.extend(collect_battlefield_cost_modifiers(
         state, player, object_id, None, false,
     ));
@@ -4810,8 +4818,9 @@ pub(super) fn apply_all_cost_modifiers(
     player: PlayerId,
     object_id: ObjectId,
     mana_cost: &mut ManaCost,
+    casting_variant: Option<CastingVariant>,
 ) {
-    apply_non_floor_cost_modifiers(state, player, object_id, mana_cost);
+    apply_non_floor_cost_modifiers(state, player, object_id, mana_cost, casting_variant);
     // CR 601.2b + CR 601.2f: Cost-floor statics (Trinisphere class) — LAST, after
     // every additive/subtractive modifier so the floor sees the final mana
     // component. While the cost still contains `{X}`, X has mana value 0
@@ -4851,8 +4860,14 @@ pub(super) fn apply_target_dependent_cost_modifiers(
             *mana_cost = super::restrictions::add_mana_cost(mana_cost, &strive_cost);
         }
     }
-    let mut collected =
-        collect_self_spell_cost_modifiers(state, player, object_id, Some(ability), true);
+    let mut collected = collect_self_spell_cost_modifiers(
+        state,
+        player,
+        object_id,
+        Some(ability),
+        true,
+        None,
+    );
     collected.extend(collect_battlefield_cost_modifiers(
         state,
         player,
@@ -4881,7 +4896,7 @@ pub(super) fn concrete_cost_for_x(
 ) -> ManaCost {
     let mut cost = base.clone();
     cost.concretize_x(x);
-    apply_non_floor_cost_modifiers(state, player, object_id, &mut cost);
+    apply_non_floor_cost_modifiers(state, player, object_id, &mut cost, None);
     apply_target_dependent_cost_modifiers(state, player, object_id, ability, &mut cost);
     apply_cost_floor(state, player, object_id, &mut cost);
     apply_cost_floor_with_selected_targets(state, player, object_id, ability, &mut cost);
@@ -4986,7 +5001,7 @@ pub(super) fn apply_cost_modifiers_to_base(
             }
         }
     }
-    apply_all_cost_modifiers(state, player, object_id, &mut mana_cost);
+    apply_all_cost_modifiers(state, player, object_id, &mut mana_cost, None);
     Some(mana_cost)
 }
 
@@ -5027,7 +5042,7 @@ fn apply_self_spell_cost_modifiers(
     spell_id: ObjectId,
     mana_cost: &mut ManaCost,
 ) {
-    let collected = collect_self_spell_cost_modifiers(state, caster, spell_id, None, false);
+    let collected = collect_self_spell_cost_modifiers(state, caster, spell_id, None, false, None);
     apply_cost_modifications_in_order(mana_cost, &collected);
 }
 
@@ -5039,7 +5054,14 @@ pub(super) fn apply_self_spell_cost_modifiers_with_selected_targets(
     ability: &ResolvedAbility,
     mana_cost: &mut ManaCost,
 ) {
-    let collected = collect_self_spell_cost_modifiers(state, caster, spell_id, Some(ability), true);
+    let collected = collect_self_spell_cost_modifiers(
+        state,
+        caster,
+        spell_id,
+        Some(ability),
+        true,
+        None,
+    );
     apply_cost_modifications_in_order(mana_cost, &collected);
 }
 
@@ -5049,12 +5071,39 @@ struct CostModification {
     multiplier: u32,
 }
 
+fn self_spell_cost_condition_matches(
+    state: &GameState,
+    condition: &StaticCondition,
+    caster: PlayerId,
+    spell_id: ObjectId,
+    casting_variant: Option<CastingVariant>,
+) -> bool {
+    match condition {
+        StaticCondition::And { conditions } => conditions.iter().all(|cond| {
+            self_spell_cost_condition_matches(state, cond, caster, spell_id, casting_variant)
+        }),
+        StaticCondition::Or { conditions } => conditions.iter().any(|cond| {
+            self_spell_cost_condition_matches(state, cond, caster, spell_id, casting_variant)
+        }),
+        StaticCondition::Not { condition } => !self_spell_cost_condition_matches(
+            state,
+            condition,
+            caster,
+            spell_id,
+            casting_variant,
+        ),
+        StaticCondition::CastingAsVariant { variant } => casting_variant == Some(*variant),
+        _ => super::layers::evaluate_condition(state, condition, caster, spell_id),
+    }
+}
+
 fn collect_self_spell_cost_modifiers(
     state: &GameState,
     caster: PlayerId,
     spell_id: ObjectId,
     selected_ability: Option<&ResolvedAbility>,
     target_sensitive_only: bool,
+    casting_variant: Option<CastingVariant>,
 ) -> Vec<CostModification> {
     let Some(spell_obj) = state.objects.get(&spell_id) else {
         return Vec::new();
@@ -5122,7 +5171,13 @@ fn collect_self_spell_cost_modifiers(
 
         // CR 604.1: Evaluate any trailing condition ("if you control a Wizard").
         if let Some(ref cond) = def.condition {
-            if !super::layers::evaluate_condition(state, cond, caster, spell_id) {
+            if !self_spell_cost_condition_matches(
+                state,
+                cond,
+                caster,
+                spell_id,
+                casting_variant,
+            ) {
                 continue;
             }
         }
@@ -14757,6 +14812,89 @@ mod tests {
     }
 
     #[test]
+    fn visions_of_ruin_flashback_commander_mv_reduces_flashback_cost() {
+        use crate::types::ability::{AggregateFunction, ObjectProperty, QuantityRef};
+        use crate::types::keywords::{FlashbackCost, Keyword};
+        use crate::types::statics::StaticMode;
+
+        let mut state = setup_game_at_main_phase();
+        let commander = create_object(
+            &mut state,
+            CardId(8801),
+            PlayerId(0),
+            "Krenko, Mob Boss".to_string(),
+            Zone::Command,
+        );
+        {
+            let obj = state.objects.get_mut(&commander).unwrap();
+            obj.is_commander = true;
+            obj.card_types.core_types.push(CoreType::Creature);
+            obj.mana_cost = ManaCost::Cost {
+                shards: vec![ManaCostShard::Red, ManaCostShard::Red],
+                generic: 2,
+            };
+        }
+
+        let spell = create_object(
+            &mut state,
+            CardId(8802),
+            PlayerId(0),
+            "Visions of Ruin".to_string(),
+            Zone::Graveyard,
+        );
+        {
+            let obj = state.objects.get_mut(&spell).unwrap();
+            obj.card_types.core_types.push(CoreType::Sorcery);
+            obj.mana_cost = ManaCost::Cost {
+                shards: vec![ManaCostShard::Red],
+                generic: 3,
+            };
+            obj.keywords.push(Keyword::Flashback(FlashbackCost::Mana(ManaCost::Cost {
+                shards: vec![ManaCostShard::Red, ManaCostShard::Red],
+                generic: 8,
+            })));
+            let mut def = StaticDefinition::new(StaticMode::ModifyCost {
+                mode: CostModifyMode::Reduce,
+                amount: ManaCost::generic(1),
+                spell_filter: None,
+                dynamic_count: Some(QuantityRef::Aggregate {
+                    function: AggregateFunction::Max,
+                    property: ObjectProperty::ManaValue,
+                    filter: TargetFilter::Typed(
+                        TypedFilter::default()
+                            .with_type(TypeFilter::Creature)
+                            .properties(vec![
+                                FilterProp::IsCommander,
+                                FilterProp::Owned {
+                                    controller: ControllerRef::You,
+                                },
+                                FilterProp::InAnyZone {
+                                    zones: vec![Zone::Battlefield, Zone::Command],
+                                },
+                            ]),
+                    ),
+                }),
+            })
+            .affected(TargetFilter::SelfRef)
+            .condition(Some(StaticCondition::CastingAsVariant {
+                variant: CastingVariant::Flashback,
+            }));
+            def.active_zones = crate::types::zones::self_spell_cost_mod_active_zones();
+            obj.static_definitions.push(def);
+        }
+
+        let prepared = prepare_spell_cast(&state, PlayerId(0), spell).unwrap();
+        assert_eq!(prepared.casting_variant, CastingVariant::Flashback);
+        match prepared.mana_cost {
+            ManaCost::Cost { generic, shards } => {
+                assert_eq!(generic, 4, "8 generic flashback minus commander MV 4");
+                assert_eq!(shards, vec![ManaCostShard::Red, ManaCostShard::Red]);
+            }
+            other => panic!("expected ManaCost::Cost, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn grant_next_spell_without_paying_casts_for_free() {
         use super::super::engine::apply_as_current;
         use crate::types::ability::{EffectKind, ResolvedAbility};
@@ -20840,6 +20978,7 @@ mod tests {
             PlayerId(0),
             obj_id,
             &mut mana_cost,
+            None,
         );
         assert_eq!(
             mana_cost,
@@ -20864,6 +21003,7 @@ mod tests {
             PlayerId(0),
             obj_id,
             &mut mana_cost,
+            None,
         );
         assert_eq!(
             mana_cost,
@@ -20922,6 +21062,7 @@ mod tests {
             PlayerId(0),
             obj_id,
             &mut mana_cost,
+            None,
         );
         assert_eq!(
             mana_cost,
@@ -20961,6 +21102,7 @@ mod tests {
             PlayerId(0),
             obj_id,
             &mut mana_cost,
+            None,
         );
         assert_eq!(
             mana_cost,
@@ -21001,6 +21143,7 @@ mod tests {
             PlayerId(0),
             obj_id,
             &mut mana_cost,
+            None,
         );
         assert_eq!(
             mana_cost,
@@ -21040,6 +21183,7 @@ mod tests {
             PlayerId(0),
             obj_id,
             &mut mana_cost,
+            None,
         );
         assert_eq!(
             mana_cost,
@@ -45254,7 +45398,7 @@ mod tests {
         );
 
         let mut cost = state.objects[&spell].mana_cost.clone();
-        apply_all_cost_modifiers(&state, PlayerId(0), spell, &mut cost);
+        apply_all_cost_modifiers(&state, PlayerId(0), spell, &mut cost, None);
 
         assert_eq!(
             cost,

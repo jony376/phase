@@ -791,6 +791,7 @@ fn static_condition_uses_object_population(condition: &StaticCondition) -> bool 
         | StaticCondition::SourceInZone { .. }
         | StaticCondition::EnchantedIsFaceDown
         | StaticCondition::AdditionalCostPaid
+        | StaticCondition::CastingAsVariant { .. }
         | StaticCondition::None => false,
     }
 }
@@ -917,6 +918,7 @@ fn entered_object_perturbs_static_condition(
         | StaticCondition::SourceInZone { .. }
         | StaticCondition::EnchantedIsFaceDown
         | StaticCondition::AdditionalCostPaid
+        | StaticCondition::CastingAsVariant { .. }
         | StaticCondition::None => false,
     }
 }
@@ -1304,6 +1306,9 @@ fn evaluate_condition_with_context(
             .filter(|pc| pc.object_id == source_id)
             .map(|pc| pc.ability.context.additional_cost_paid)
             .unwrap_or(false),
+        // CR 702.34a: Cast-time variant gates are evaluated in
+        // `collect_self_spell_cost_modifiers`, not the layer pipeline.
+        StaticCondition::CastingAsVariant { .. } => false,
         StaticCondition::None => true,
         // CR 309.7: True when the controller has completed at least one dungeon.
         StaticCondition::CompletedADungeon => state

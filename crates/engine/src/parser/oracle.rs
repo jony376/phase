@@ -44,6 +44,7 @@ use super::oracle_classifier::{
     is_compound_turn_limit, is_defiler_cost_pattern, is_enters_tapped_cant_untap_compound,
     is_enters_with_counter_replacement_line, is_enters_with_counter_trigger,
     is_flashback_equal_mana_cost, is_granted_static_line, is_instead_replacement_line,
+    split_flashback_trailing_self_spell_cost_reduction,
     is_opening_hand_begin_game, is_pay_life_as_colored_mana_pattern, is_replacement_pattern,
     is_spells_alternative_cost_pattern, is_static_pattern, is_vehicle_tier_line, lower_starts_with,
     should_defer_spell_to_effect,
@@ -3784,6 +3785,21 @@ pub(crate) fn parse_oracle_ir(
         // Priority 13: Keyword cost lines — extract keyword if parseable, then skip.
         // MTGJSON provides keyword names (e.g. "Morph") but not parameterized forms.
         // The Oracle text has the full form (e.g. "Morph {2}{B}{G}{U}") which we extract here.
+        if lower_starts_with(&lower, "flashback") {
+            if let Some((flashback_part, reduction_part)) =
+                split_flashback_trailing_self_spell_cost_reduction(&line, &lower)
+            {
+                let flashback_lower = flashback_part.to_lowercase();
+                if let Some(kw) = parse_keyword_from_oracle(&flashback_lower) {
+                    result.extracted_keywords.push(kw);
+                }
+                if let Some(def) = parse_static_line(reduction_part) {
+                    result.statics.push(def);
+                }
+                i += 1;
+                continue;
+            }
+        }
         if is_keyword_cost_line(&lower) {
             if let Some(kw) = parse_keyword_from_oracle(&lower) {
                 result.extracted_keywords.push(kw);

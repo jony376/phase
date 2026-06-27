@@ -4161,6 +4161,45 @@ mod tests {
         );
     }
 
+    /// CR 702.34a + CR 601.2f: Visions of Ruin — flashback cost plus commander-MV
+    /// "cast this way" reduction must parse without swallowing either clause.
+    #[test]
+    fn visions_of_ruin_flashback_commander_reduction_parses_without_swallow() {
+        let parsed = parse_named(
+            "Each opponent sacrifices an artifact. For each artifact sacrificed this way, you create a Treasure token.\n\
+             Flashback {8}{R}{R}. This spell costs {X} less to cast this way, where X is the greatest mana value of a commander you own on the battlefield or in the command zone.",
+            "Visions of Ruin",
+            &["Sorcery"],
+        );
+        assert!(
+            parsed
+                .extracted_keywords
+                .iter()
+                .any(|k| matches!(k, Keyword::Flashback(_))),
+            "expected Flashback keyword, got {:?}",
+            parsed.extracted_keywords
+        );
+        assert!(
+            parsed.statics.iter().any(|sd| {
+                matches!(sd.mode, StaticMode::ModifyCost { .. })
+                    && sd.condition.as_ref().is_some_and(|cond| matches!(
+                        cond,
+                        crate::types::ability::StaticCondition::CastingAsVariant { .. }
+                    ))
+            }),
+            "expected flashback-gated ReduceCost static, got {:?}",
+            parsed.statics
+        );
+        assert!(
+            parsed
+                .parse_warnings
+                .iter()
+                .all(|warning| !matches!(warning, OracleDiagnostic::SwallowedClause { .. })),
+            "Visions of Ruin must not swallow flashback cost-reduction clauses: {:?}",
+            parsed.parse_warnings
+        );
+    }
+
     /// CR 508.1 + CR 118.9: Lethargy Trap — leading-if attacking-creature count
     /// gate on the {U} alternative casting cost must not report Condition_If.
     #[test]

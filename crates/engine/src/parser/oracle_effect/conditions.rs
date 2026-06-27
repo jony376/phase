@@ -5783,7 +5783,9 @@ mod tests {
             "Destroy those creatures if they have the greatest toughness among creatures.",
         );
         assert_eq!(body, "Destroy those creatures");
-        let Some(AbilityCondition::QuantityCheck { comparator, rhs, .. }) = condition
+        let Some(AbilityCondition::QuantityCheck {
+            comparator, rhs, ..
+        }) = condition
         else {
             panic!("expected QuantityCheck, got {condition:?}");
         };

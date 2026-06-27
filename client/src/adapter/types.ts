@@ -1932,7 +1932,6 @@ export interface PendingNextSpellModifier {
   player: PlayerId;
   modifier: NextSpellModifier;
   spell_filter?: TargetFilter | null;
-  source_id?: ObjectId | null;
 }
 
 /** CR 601.2f: a one-shot mana reduction for a player's next qualifying spell.

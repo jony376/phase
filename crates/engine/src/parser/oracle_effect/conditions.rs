@@ -10,8 +10,7 @@ use nom::Parser;
 
 use super::super::oracle_nom::bridge::{nom_on_lower, nom_parse_lower};
 use super::super::oracle_nom::condition::{
-    inject_controller_you, parse_cast_using_teamwork_phrase,
-    try_parse_spell_target_has_superlative,
+    inject_controller_you, parse_cast_using_teamwork_phrase, try_parse_spell_target_has_superlative,
 };
 use super::super::oracle_nom::primitives as nom_primitives;
 use super::super::oracle_nom::quantity as nom_quantity;
@@ -1887,7 +1886,9 @@ pub(super) fn strip_mana_value_conditional(text: &str) -> (Option<AbilityConditi
 
 /// CR 608.2c: Strip trailing "if it has the [least|greatest] <property> among
 /// <filter>" from a targeted spell effect (Wretched Banquet class).
-pub(super) fn strip_superlative_target_conditional(text: &str) -> (Option<AbilityCondition>, String) {
+pub(super) fn strip_superlative_target_conditional(
+    text: &str,
+) -> (Option<AbilityCondition>, String) {
     let lower = text.to_lowercase();
     let tp = TextPair::new(text, &lower);
     let Some((before, after)) = tp.rsplit_around(" if it has the ") else {

@@ -4173,10 +4173,9 @@ mod tests {
         );
         assert_eq!(parsed.abilities.len(), 1, "expected one spell ability");
         match &parsed.abilities[0].condition {
-            Some(crate::types::ability::AbilityCondition::QuantityCheck {
-                comparator,
-                ..
-            }) => assert_eq!(*comparator, crate::types::ability::Comparator::LE),
+            Some(crate::types::ability::AbilityCondition::QuantityCheck { comparator, .. }) => {
+                assert_eq!(*comparator, crate::types::ability::Comparator::LE)
+            }
             other => panic!("expected QuantityCheck least-power gate, got: {other:?}"),
         }
         assert!(

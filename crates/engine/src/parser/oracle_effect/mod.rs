@@ -51380,6 +51380,7 @@ mod tests {
             ResolvedAbility::new(
                 Effect::Destroy {
                     target: TargetFilter::Typed(TypedFilter::creature()),
+                    cant_regenerate: false,
                 },
                 vec![TargetRef::Object(target)],
                 ObjectId(100),

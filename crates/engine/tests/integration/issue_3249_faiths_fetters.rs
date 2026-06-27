@@ -6,7 +6,7 @@
 
 use engine::game::combat::AttackTarget;
 use engine::game::effects::attach::attach_to;
-use engine::game::scenario::{GameRunner, GameScenario, P0, P1};
+use engine::game::scenario::{GameScenario, P0, P1};
 use engine::types::phase::Phase;
 
 const FAITHS_FETTERS: &str = "Enchant permanent\n\
@@ -28,8 +28,7 @@ fn faiths_fetters_prevents_enchanted_creature_from_attacking() {
     let bear = scenario.add_creature(P0, "Grizzly Bears", 2, 2).id();
 
     let mut runner = scenario.build();
-    attach_to(runner.state_mut(), fetters, bear)
-        .expect("Faith's Fetters must attach to the bear");
+    attach_to(runner.state_mut(), fetters, bear).expect("Faith's Fetters must attach to the bear");
 
     runner.advance_to_combat();
     let err = runner

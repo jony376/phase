@@ -2064,7 +2064,7 @@ fn parse_subject_has_superlative_form(input: &str) -> OracleResult<'_, StaticCon
 }
 
 /// Parse a superlative adjective into its corresponding `AggregateFunction`.
-fn parse_superlative_adjective(input: &str) -> OracleResult<'_, AggregateFunction> {
+pub(crate) fn parse_superlative_adjective(input: &str) -> OracleResult<'_, AggregateFunction> {
     alt((
         value(AggregateFunction::Max, tag("greatest")),
         value(AggregateFunction::Max, tag("highest")),
@@ -2075,7 +2075,7 @@ fn parse_superlative_adjective(input: &str) -> OracleResult<'_, AggregateFunctio
 }
 
 /// Property keyword parser — used by both LHS and RHS of the comparison.
-fn parse_property_keyword(input: &str) -> OracleResult<'_, ObjectProperty> {
+pub(crate) fn parse_property_keyword(input: &str) -> OracleResult<'_, ObjectProperty> {
     alt((
         value(ObjectProperty::Power, tag("power")),
         value(ObjectProperty::Toughness, tag("toughness")),
@@ -2199,6 +2199,50 @@ fn build_superlative_comparison(
             },
         },
     }
+}
+
+/// CR 608.2c: Spell-target gate "if it has the [least|greatest] <property> among
+/// <filter>" (Wretched Banquet). Uses `ObjectScope::Target` on the LHS and a
+/// population aggregate without `OtherThanTriggerObject` — distinct from the
+/// trigger-anchored `build_superlative_comparison` form.
+pub(crate) fn try_parse_spell_target_has_superlative(input: &str) -> Option<AbilityCondition> {
+    let (rest, aggregate) = parse_superlative_adjective(input).ok()?;
+    let (rest, _) = tag::<_, _, OracleError<'_>>(" ").parse(rest).ok()?;
+    let (rest, property) = parse_property_keyword(rest).ok()?;
+    let (rest, _) = tag::<_, _, OracleError<'_>>(" among ").parse(rest).ok()?;
+    let (filter, remainder) = parse_type_phrase(rest);
+    if !remainder.trim().is_empty() || matches!(filter, TargetFilter::Any) {
+        return None;
+    }
+    let lhs_qty = match property {
+        ObjectProperty::Power => QuantityRef::Power {
+            scope: ObjectScope::Target,
+        },
+        ObjectProperty::Toughness => QuantityRef::Toughness {
+            scope: ObjectScope::Target,
+        },
+        ObjectProperty::ManaValue => QuantityRef::ObjectManaValue {
+            scope: ObjectScope::Target,
+        },
+        ObjectProperty::ManaSymbolCount(_) => return None,
+    };
+    // "Has the least/greatest" allows ties — use LE/GE, not strict LT/GT.
+    let comparator = match aggregate {
+        AggregateFunction::Min => Comparator::LE,
+        AggregateFunction::Max => Comparator::GE,
+        AggregateFunction::Sum => return None,
+    };
+    Some(AbilityCondition::QuantityCheck {
+        lhs: QuantityExpr::Ref { qty: lhs_qty },
+        comparator,
+        rhs: QuantityExpr::Ref {
+            qty: QuantityRef::Aggregate {
+                function: aggregate,
+                property,
+                filter,
+            },
+        },
+    })
 }
 
 /// Attach `FilterProp::OtherThanTriggerObject` to a `TargetFilter`'s property

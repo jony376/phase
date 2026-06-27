@@ -11,6 +11,7 @@ use nom::Parser;
 use super::super::oracle_nom::bridge::{nom_on_lower, nom_parse_lower};
 use super::super::oracle_nom::condition::{
     inject_controller_you, parse_cast_using_teamwork_phrase,
+    try_parse_spell_target_has_superlative,
 };
 use super::super::oracle_nom::primitives as nom_primitives;
 use super::super::oracle_nom::quantity as nom_quantity;
@@ -1882,6 +1883,26 @@ pub(super) fn strip_mana_value_conditional(text: &str) -> (Option<AbilityConditi
     }
 
     (None, text.to_string())
+}
+
+/// CR 608.2c: Strip trailing "if it has the [least|greatest] <property> among
+/// <filter>" from a targeted spell effect (Wretched Banquet class).
+pub(super) fn strip_superlative_target_conditional(text: &str) -> (Option<AbilityCondition>, String) {
+    let lower = text.to_lowercase();
+    let tp = TextPair::new(text, &lower);
+    let Some((before, after)) = tp.rsplit_around(" if it has the ") else {
+        return (None, text.to_string());
+    };
+    let suffix = after.original.trim_end_matches('.').trim();
+    let suffix_lower = after.lower.trim_end_matches('.').trim();
+    let Some(condition) = try_parse_spell_target_has_superlative(suffix_lower) else {
+        return (None, text.to_string());
+    };
+    let _ = suffix; // preserve original-case suffix for diagnostics if needed
+    (
+        Some(condition),
+        before.original.trim_end_matches('.').trim().to_string(),
+    )
 }
 
 /// Parse the body of a leading mana-value conditional — "`<N>` or less/greater, [effect]" —
@@ -5702,6 +5723,43 @@ mod tests {
             Some(AbilityCondition::Not {
                 condition: Box::new(AbilityCondition::effect_performed())
             })
+        );
+    }
+
+    #[test]
+    fn strip_superlative_target_conditional_least_power() {
+        use crate::types::ability::{AggregateFunction, ObjectProperty};
+
+        let (condition, body) = strip_superlative_target_conditional(
+            "Destroy target creature if it has the least power among creatures.",
+        );
+        assert_eq!(body, "Destroy target creature");
+        let Some(AbilityCondition::QuantityCheck {
+            lhs,
+            comparator,
+            rhs,
+        }) = condition
+        else {
+            panic!("expected QuantityCheck, got {condition:?}");
+        };
+        assert_eq!(comparator, Comparator::LE);
+        assert_eq!(
+            lhs,
+            QuantityExpr::Ref {
+                qty: QuantityRef::Power {
+                    scope: ObjectScope::Target,
+                }
+            }
+        );
+        assert_eq!(
+            rhs,
+            QuantityExpr::Ref {
+                qty: QuantityRef::Aggregate {
+                    function: AggregateFunction::Min,
+                    property: ObjectProperty::Power,
+                    filter: TargetFilter::Typed(TypedFilter::creature()),
+                }
+            }
         );
     }
 

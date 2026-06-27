@@ -49905,6 +49905,13 @@ mod tests {
             "For each counter removed, this creature gets +2/+0 until end of turn",
             AbilityKind::Spell,
         );
+        assert_eq!(
+            def.repeat_for,
+            Some(QuantityExpr::Ref {
+                qty: QuantityRef::PreviousEffectAmount,
+            }),
+            "repeat_for should scale by counters removed in the activation cost"
+        );
         match &*def.effect {
             Effect::Pump { target, .. } => {
                 assert_eq!(

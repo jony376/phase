@@ -2554,7 +2554,7 @@ fn parse_for_each_clause_with_they_controller(
         }
     }
 
-    // CR 106.1 + CR 122.1: bare "counter[s] removed" (Blademane Baku) — an
+    // CR 608.2c + CR 122.1: bare "counter[s] removed" (Blademane Baku) — an
     // activated ability whose cost removed counters scales the effect without
     // an explicit "this way". Dispatches to `PreviousEffectAmount`, same runtime
     // channel as "counter removed this way" (Coalition Relic class).

@@ -14791,7 +14791,9 @@ mod tests {
 
     #[test]
     fn visions_of_ruin_flashback_commander_mv_reduces_flashback_cost() {
-        use crate::types::ability::{AggregateFunction, Effect, ObjectProperty, QuantityExpr, QuantityRef};
+        use crate::types::ability::{
+            AggregateFunction, Effect, ObjectProperty, QuantityExpr, QuantityRef,
+        };
         use crate::types::keywords::{FlashbackCost, Keyword};
         use crate::types::statics::StaticMode;
 

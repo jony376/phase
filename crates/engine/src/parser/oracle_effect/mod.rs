@@ -22341,6 +22341,17 @@ fn parse_unless_mana_or_energy_payment(cost_str: &str) -> Option<AbilityCost> {
     Some(AbilityCost::Mana { cost })
 }
 
+/// Winternight Stories shape: primary Discard with "unless you discard a [type]"
+/// — uses `unless_filter`, not resolution `unless_pay`.
+fn is_discard_unless_you_discard_filter(before_unless: &str, after_unless: &str) -> bool {
+    tag::<_, _, OracleError<'_>>("discard")
+        .parse(before_unless.trim_start())
+        .is_ok()
+        && tag::<_, _, OracleError<'_>>("you discard ")
+            .parse(after_unless)
+            .is_ok()
+}
+
 /// CR 118.12 / CR 119.4 / CR 608.2c: Normalize the subject of a counter
 /// spell's non-mana "unless" cost to the "they" pronoun recognized by the
 /// shared non-mana cost authority (`parse_unless_they_alt_cost_chain`).
@@ -22481,9 +22492,7 @@ fn extract_resolution_unless_pay_modifier(
         // Skip when the primary effect is Discard and the alternative is also
         // "you discard a [type]" — that shape uses `unless_filter` on the
         // Discard effect (Winternight Stories), not `unless_pay`.
-        if !(before_unless.trim_start().starts_with("discard")
-            && after_unless_lower.starts_with("you discard "))
-        {
+        if !is_discard_unless_you_discard_filter(before_unless, after_unless_lower) {
             if let Some(cost) =
                 crate::parser::oracle_trigger::parse_unless_alt_cost(after_unless_lower)
             {

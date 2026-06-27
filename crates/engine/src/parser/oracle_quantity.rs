@@ -2670,10 +2670,13 @@ fn parse_for_each_clause_with_they_controller(
         // just drawn by the immediately preceding draw instruction in the same
         // resolution (Read the Runes). `EventContextAmount` reads the draw
         // count stamped on `last_effect_count` by the parent Draw effect.
-        if matches!(
-            lower.as_str(),
-            "card drawn this way" | "cards drawn this way"
-        ) {
+        if all_consuming(alt((
+            tag::<_, _, OracleError<'_>>("card drawn this way"),
+            tag("cards drawn this way"),
+        )))
+        .parse(lower.as_str())
+        .is_ok()
+        {
             return Some(QuantityRef::EventContextAmount);
         }
         // CR 608.2c + CR 400.7: "nontoken creature you controlled that was

@@ -4140,7 +4140,8 @@ mod tests {
     #[test]
     fn condition_if_accepts_lethargy_trap_alt_cost_gate() {
         let parsed = parse_named(
-            "If three or more creatures are attacking, you may pay {U} rather than pay this spell's mana cost.\nAttacking creatures get -3/-0 until end of turn.",
+            "If three or more creatures are attacking, you may pay {U} rather than pay \
+this spell's mana cost.\nAttacking creatures get -3/-0 until end of turn.",
             "Lethargy Trap",
             &["Instant"],
         );

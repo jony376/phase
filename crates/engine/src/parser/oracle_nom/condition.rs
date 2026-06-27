@@ -7950,7 +7950,9 @@ mod tests {
                     panic!("expected Typed creature filter, got {filter:?}");
                 }
             }
-            other => panic!("expected QuantityComparison GE 3 attacking creatures, got {other:?}"),
+            other => panic!(
+                "expected QuantityComparison GE 3 attacking creatures, got {other:?}"
+            ),
         }
     }
 

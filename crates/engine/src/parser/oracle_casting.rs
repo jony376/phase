@@ -1702,7 +1702,8 @@ mod tests {
     #[test]
     fn alt_cost_leading_if_attacking_creatures_count_ge_binds() {
         let option = parse_spell_casting_option_line(
-            "If three or more creatures are attacking, you may pay {U} rather than pay this spell's mana cost.",
+            "If three or more creatures are attacking, you may pay {U} rather than pay \
+this spell's mana cost.",
             "Lethargy Trap",
         )
         .expect("alt-cost should parse with leading-if attacking-creatures gate");
@@ -1729,7 +1730,9 @@ mod tests {
                     panic!("expected Typed creature filter, got {filter:?}");
                 }
             }
-            other => panic!("expected QuantityComparison GE 3 attacking creatures, got {other:?}"),
+            other => panic!(
+                "expected QuantityComparison GE 3 attacking creatures, got {other:?}"
+            ),
         }
     }
 

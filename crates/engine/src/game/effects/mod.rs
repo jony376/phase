@@ -14655,7 +14655,7 @@ mod tests {
         use crate::types::ability::AbilityKind;
         use crate::types::actions::GameAction;
 
-        let mut state = setup_game_at_main_phase();
+        let mut state = GameState::new_two_player(42);
         for i in 0..2 {
             create_object(
                 &mut state,

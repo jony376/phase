@@ -14642,7 +14642,7 @@ mod tests {
 
         assert_eq!(state.players[0].hand.len(), 3);
         assert_eq!(state.players[1].hand.len(), 3);
-        assert_eq!(state.players[0].graveyard.len(), 1);
+        assert_eq!(state.players[0].graveyard.len(), 3);
         assert_eq!(state.players[1].graveyard.len(), 1);
     }
 
@@ -14655,7 +14655,7 @@ mod tests {
         use crate::types::ability::AbilityKind;
         use crate::types::actions::GameAction;
 
-        let mut state = GameState::new_two_player(42);
+        let mut state = setup_game_at_main_phase();
         for i in 0..2 {
             create_object(
                 &mut state,
@@ -14704,6 +14704,16 @@ mod tests {
         );
 
         apply_as_current(&mut state, GameAction::PayUnlessCost { pay: false }).unwrap();
+
+        if let WaitingFor::DiscardChoice { cards, .. } = &state.waiting_for {
+            apply_as_current(
+                &mut state,
+                GameAction::SelectCards {
+                    cards: vec![cards[0]],
+                },
+            )
+            .unwrap();
+        }
 
         assert_eq!(
             state.players[0].hand.len(),

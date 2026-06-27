@@ -22478,16 +22478,24 @@ fn extract_resolution_unless_pay_modifier(
         // CR 118.12a: "unless you sacrifice/discard/exile/..." — the ability
         // controller is the payer (Read the Runes: discard unless you sacrifice
         // a permanent). Delegates to the trigger-side single authority.
-        if let Some(cost) = crate::parser::oracle_trigger::parse_unless_alt_cost(after_unless_lower)
+        // Skip when the primary effect is Discard and the alternative is also
+        // "you discard a [type]" — that shape uses `unless_filter` on the
+        // Discard effect (Winternight Stories), not `unless_pay`.
+        if !(before_unless.trim_start().starts_with("discard")
+            && after_unless_lower.starts_with("you discard "))
         {
-            let cleaned = text[..before_unless.trim_end().len()].trim().to_string();
-            return (
-                cleaned,
-                Some(UnlessPayModifier {
-                    cost,
-                    payer: TargetFilter::Controller,
-                }),
-            );
+            if let Some(cost) =
+                crate::parser::oracle_trigger::parse_unless_alt_cost(after_unless_lower)
+            {
+                let cleaned = text[..before_unless.trim_end().len()].trim().to_string();
+                return (
+                    cleaned,
+                    Some(UnlessPayModifier {
+                        cost,
+                        payer: TargetFilter::Controller,
+                    }),
+                );
+            }
         }
         if let Some(cost) = parse_unless_have_deal_damage_cost(after_unless_lower) {
             let cleaned = text[..before_unless.trim_end().len()].trim().to_string();

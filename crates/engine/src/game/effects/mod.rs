@@ -14705,11 +14705,15 @@ mod tests {
 
         apply_as_current(&mut state, GameAction::PayUnlessCost { pay: false }).unwrap();
 
-        if let WaitingFor::DiscardChoice { cards, .. } = &state.waiting_for {
+        let discard_pick = match &state.waiting_for {
+            WaitingFor::DiscardChoice { cards, .. } => Some(cards[0]),
+            _ => None,
+        };
+        if let Some(pick) = discard_pick {
             apply_as_current(
                 &mut state,
                 GameAction::SelectCards {
-                    cards: vec![cards[0]],
+                    cards: vec![pick],
                 },
             )
             .unwrap();

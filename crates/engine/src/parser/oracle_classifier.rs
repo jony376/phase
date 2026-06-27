@@ -1,7 +1,8 @@
+use crate::parser::oracle_nom::bridge::nom_on_lower;
 use crate::parser::oracle_nom::error::OracleError;
 use nom::branch::alt;
-use nom::bytes::complete::tag;
-use nom::combinator::{opt, verify};
+use nom::bytes::complete::{tag, take_until};
+use nom::combinator::{opt, value, verify};
 use nom::sequence::{preceded, terminated};
 use nom::Parser;
 
@@ -55,16 +56,31 @@ pub(crate) fn split_flashback_trailing_self_spell_cost_reduction<'a>(
     line: &'a str,
     lower: &'a str,
 ) -> Option<(&'a str, &'a str)> {
-    for marker in [". this spell costs ", ". this card costs "] {
-        let Some(idx) = lower.find(marker) else {
-            continue;
-        };
-        let flashback_part = line[..idx].trim();
-        let reduction_part = line[idx + 1..].trim();
-        if lower_starts_with(lower, "flashback") {
-            return Some((flashback_part, reduction_part));
-        }
+    const SPELL_MARKER: &str = ". this spell costs ";
+    const CARD_MARKER: &str = ". this card costs ";
+
+    if let Some(((), reduction_text)) = nom_on_lower(line, lower, |input| {
+        preceded(
+            tag("flashback"),
+            value((), (take_until(SPELL_MARKER), tag(". "))),
+        )
+        .parse(input)
+    }) {
+        let flashback_len = line.len() - ". ".len() - reduction_text.len();
+        return Some((line[..flashback_len].trim(), reduction_text.trim()));
     }
+
+    if let Some(((), reduction_text)) = nom_on_lower(line, lower, |input| {
+        preceded(
+            tag("flashback"),
+            value((), (take_until(CARD_MARKER), tag(". "))),
+        )
+        .parse(input)
+    }) {
+        let flashback_len = line.len() - ". ".len() - reduction_text.len();
+        return Some((line[..flashback_len].trim(), reduction_text.trim()));
+    }
+
     None
 }
 

@@ -305,15 +305,31 @@ pub(crate) fn try_parse_impose_additional_cost(
     )
 }
 
+/// CR 702.34a + CR 601.2f: Parse the trailing self-spell cost modifier from a
+/// compound Flashback line whose leading clause was already proven Flashback.
+pub(crate) fn parse_flashback_trailing_self_spell_cost_reduction(
+    text: &str,
+) -> Option<StaticDefinition> {
+    let text = strip_reminder_text(text);
+    let lower = text.to_lowercase();
+    try_parse_cost_modification(
+        &text,
+        &lower,
+        Some(crate::types::game_state::CastingVariant::Flashback),
+    )
+}
+
 /// Dynamic "for each" counts are extracted when present.
-pub(crate) fn try_parse_cost_modification(text: &str, lower: &str) -> Option<StaticDefinition> {
+pub(crate) fn try_parse_cost_modification(
+    text: &str,
+    lower: &str,
+    casting_as_variant: Option<crate::types::game_state::CastingVariant>,
+) -> Option<StaticDefinition> {
     let original_text = text;
     let (cost_text, leading_condition) =
         peel_leading_cost_modifier_condition(TextPair::new(text, lower));
     let text = cost_text.original;
     let lower = cost_text.lower;
-    let cast_this_way_variant = nom_primitives::scan_contains(lower, "less to cast this way")
-        .then_some(crate::types::game_state::CastingVariant::Flashback);
 
     let is_raise = nom_primitives::scan_contains(lower, "more to cast")
         || nom_primitives::scan_contains(lower, "more to activate");
@@ -748,7 +764,10 @@ pub(crate) fn try_parse_cost_modification(text: &str, lower: &str) -> Option<Sta
         definition.condition = Some(StaticCondition::DuringYourTurn);
     }
 
-    if let Some(variant) = cast_this_way_variant {
+    // CR 601.2f + CR 702.34a: Caller-proven casting variant (e.g. Flashback from
+    // the compound-line parser) gates self-spell cost modifiers — never inferred
+    // from generic "cast this way" wording alone.
+    if let Some(variant) = casting_as_variant {
         definition.condition = Some(match definition.condition.take() {
             Some(existing) => StaticCondition::And {
                 conditions: vec![existing, StaticCondition::CastingAsVariant { variant }],

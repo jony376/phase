@@ -168,6 +168,16 @@ pub fn parse_static_line(text: &str) -> Option<crate::types::ability::StaticDefi
     Some(lower_static_ir(&ir))
 }
 
+/// CR 702.34a + CR 601.2f: Parse a self-spell cost modifier trailing a proven
+/// Flashback clause (Visions of Ruin class).
+pub(crate) fn parse_flashback_trailing_self_spell_cost_reduction(
+    text: &str,
+) -> Option<crate::types::ability::StaticDefinition> {
+    let mut def = static_helpers::parse_flashback_trailing_self_spell_cost_reduction(text)?;
+    shared::populate_active_zones_from_condition(&mut def);
+    Some(def)
+}
+
 /// IR production: parse a static line into `StaticIr` (pre-lowering).
 pub(crate) fn parse_static_line_ir(text: &str) -> Option<StaticIr> {
     let definition = parse_static_line_inner(text, InvertedAsLongAs::Allow)?;

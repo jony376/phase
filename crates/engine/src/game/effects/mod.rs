@@ -14694,7 +14694,10 @@ mod tests {
         assert!(
             matches!(
                 state.waiting_for,
-                WaitingFor::UnlessPayment { player: PlayerId(0), .. }
+                WaitingFor::UnlessPayment {
+                    player: PlayerId(0),
+                    ..
+                }
             ),
             "must pause at unless-sacrifice before discard, got {:?}",
             state.waiting_for

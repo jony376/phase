@@ -22478,8 +22478,7 @@ fn extract_resolution_unless_pay_modifier(
         // CR 118.12a: "unless you sacrifice/discard/exile/..." — the ability
         // controller is the payer (Read the Runes: discard unless you sacrifice
         // a permanent). Delegates to the trigger-side single authority.
-        if let Some(cost) =
-            crate::parser::oracle_trigger::parse_unless_alt_cost(after_unless_lower)
+        if let Some(cost) = crate::parser::oracle_trigger::parse_unless_alt_cost(after_unless_lower)
         {
             let cleaned = text[..before_unless.trim_end().len()].trim().to_string();
             return (

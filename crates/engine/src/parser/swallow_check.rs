@@ -26,8 +26,8 @@ use super::oracle_ir::diagnostic::{CascadeSlot, OracleDiagnostic};
 use crate::types::ability::{
     AbilityCondition, AbilityDefinition, ActivationRestriction, Comparator, ContinuousModification,
     CopyRetargetPermission, Effect, FilterProp, ModalSelectionConstraint, OpponentMayScope,
-    PlayerFilter, QuantityExpr, ReplacementDefinition, ReplacementMode,
-    StaticDefinition, TargetFilter, TriggerDefinition,
+    PlayerFilter, QuantityExpr, ReplacementDefinition, ReplacementMode, StaticDefinition,
+    TargetFilter, TriggerDefinition,
 };
 use crate::types::game_state::RetargetScope;
 use crate::types::keywords::Keyword;

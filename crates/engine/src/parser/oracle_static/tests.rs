@@ -2568,7 +2568,7 @@ fn drag_to_the_underworld_self_cost_reduction_binds_devotion_to_black() {
 fn variable_x_self_cost_reduction_without_where_x_binding_is_rejected() {
     assert!(
         parse_static_line("This spell costs {X} less to cast.").is_none(),
-        "unbound {X} self-spell reduction must not lower to a silent {{1}} reducer"
+        "unbound {{X}} self-spell reduction must not lower to a silent {{1}} reducer"
     );
 }
 

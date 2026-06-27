@@ -21270,7 +21270,7 @@ mod tests {
 
         match mana_cost {
             ManaCost::Cost { generic, shards } => {
-                assert_eq!(generic, 0, "devotion 3 must reduce {2} generic to {0}");
+                assert_eq!(generic, 0, "devotion 3 must reduce {{2}} generic to {{0}}");
                 assert_eq!(shards, vec![ManaCostShard::Black, ManaCostShard::Black]);
             }
             other => panic!("expected ManaCost::Cost, got {other:?}"),

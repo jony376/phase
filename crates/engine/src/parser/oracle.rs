@@ -3631,6 +3631,10 @@ pub(crate) fn parse_oracle_ir(
                     || ends_with_quoted_activated_ability(&prepared_line.effect_text)
                     || is_self_exile_cleanup_line(&next_prepared.effect_text, card_name)
                     || is_standalone_spell_keyword_action_line(&prepared_line.effect_text)
+                    || lower_starts_with(
+                        &next_prepared.effect_text.to_lowercase(),
+                        "flashback",
+                    )
                     || !is_spell_resolution_instruction_line(
                         &next_prepared,
                         card_name,

@@ -3094,6 +3094,33 @@ pub(crate) fn parse_oracle_ir(
             continue;
         }
 
+        // CR 702.34a: Flashback em-dash / compound self-spell cost-reduction lines.
+        // Must run before Priority 7 static patterns: "This spell costs {X} less
+        // to cast this way" matches `is_static_pattern` and would swallow the
+        // flashback keyword on Visions of Ruin class cards.
+        if lower_starts_with(&lower, "flashback") {
+            if line.contains('\u{2014}') {
+                let lower_clean = lower.trim_end_matches('.').trim();
+                if let Some(kw) = parse_keyword_from_oracle(lower_clean) {
+                    result.extracted_keywords.push(kw);
+                    i += 1;
+                    continue;
+                }
+            } else if let Some((flashback_part, reduction_part)) =
+                split_flashback_trailing_self_spell_cost_reduction(&line, &lower)
+            {
+                let flashback_lower = flashback_part.to_lowercase();
+                if let Some(kw) = parse_keyword_from_oracle(&flashback_lower) {
+                    result.extracted_keywords.push(kw);
+                }
+                if let Some(def) = parse_static_line(reduction_part) {
+                    result.statics.push(def);
+                }
+                i += 1;
+                continue;
+            }
+        }
+
         // Priority 7: Static/continuous patterns
         // CR 611.2a + CR 611.3a: On permanents, "creatures you control get +1/+1"
         // is a static ability (CR 611.3a). On instants/sorceries, lines with an
@@ -3503,45 +3530,6 @@ pub(crate) fn parse_oracle_ir(
             continue;
         }
 
-        // CR 702.34a: Flashback em-dash form — "Flashback—{cost}", "Flashback—Tap N
-        // creatures...", or compound "Flashback—{mana}, Pay N life." The comma in
-        // compound costs prevents `extract_keyword_line` (priority 1b) from
-        // recognising the line as a keyword-only line, and Priority 9 would
-        // otherwise route it to the spell-effect catch-all and produce
-        // `Unimplemented`. Intercept it here, before the spell catch-all, and
-        // delegate to `parse_keyword_from_oracle`'s em-dash dispatcher.
-        //
-        // Visions of Ruin also prints a period-separated compound line:
-        // "Flashback {8}{R}{R}. This spell costs {X} less to cast this way, …".
-        // `is_keyword_cost_line` matches that line at Priority 9 but
-        // `parse_keyword_from_oracle` fails on the full text, so split the
-        // trailing self-spell reduction before the spell catch-all.
-        if lower_starts_with(&lower, "flashback") {
-            if line.contains('\u{2014}') {
-                // Strip trailing punctuation so the em-dash dispatcher sees a clean
-                // cost string. Reminder text was already removed by `strip_reminder_text`
-                // upstream, but the trailing period from "Pay 3 life." remains.
-                let lower_clean = lower.trim_end_matches('.').trim();
-                if let Some(kw) = parse_keyword_from_oracle(lower_clean) {
-                    result.extracted_keywords.push(kw);
-                    i += 1;
-                    continue;
-                }
-            } else if let Some((flashback_part, reduction_part)) =
-                split_flashback_trailing_self_spell_cost_reduction(&line, &lower)
-            {
-                let flashback_lower = flashback_part.to_lowercase();
-                if let Some(kw) = parse_keyword_from_oracle(&flashback_lower) {
-                    result.extracted_keywords.push(kw);
-                }
-                if let Some(def) = parse_static_line(reduction_part) {
-                    result.statics.push(def);
-                }
-                i += 1;
-                continue;
-            }
-        }
-
         // CR 702.27a: Buyback em-dash form — "Buyback—Sacrifice a land." (Constant
         // Mists) etc. MTGJSON omits the Buyback keyword when the cost is non-mana,
         // so `extract_keyword_line` bails and the line would otherwise fall through
@@ -3631,10 +3619,7 @@ pub(crate) fn parse_oracle_ir(
                     || ends_with_quoted_activated_ability(&prepared_line.effect_text)
                     || is_self_exile_cleanup_line(&next_prepared.effect_text, card_name)
                     || is_standalone_spell_keyword_action_line(&prepared_line.effect_text)
-                    || lower_starts_with(
-                        &next_prepared.effect_text.to_lowercase(),
-                        "flashback",
-                    )
+                    || lower_starts_with(&next_prepared.effect_text.to_lowercase(), "flashback")
                     || !is_spell_resolution_instruction_line(
                         &next_prepared,
                         card_name,

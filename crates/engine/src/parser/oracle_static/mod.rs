@@ -173,7 +173,13 @@ pub fn parse_static_line(text: &str) -> Option<crate::types::ability::StaticDefi
 pub(crate) fn parse_flashback_trailing_self_spell_cost_reduction(
     text: &str,
 ) -> Option<crate::types::ability::StaticDefinition> {
-    let mut def = static_helpers::parse_flashback_trailing_self_spell_cost_reduction(text)?;
+    let text = crate::parser::oracle_util::strip_reminder_text(text);
+    let lower = text.to_lowercase();
+    let mut def = static_helpers::try_parse_cost_modification(
+        &text,
+        &lower,
+        Some(crate::types::game_state::CastingVariant::Flashback),
+    )?;
     shared::populate_active_zones_from_condition(&mut def);
     Some(def)
 }

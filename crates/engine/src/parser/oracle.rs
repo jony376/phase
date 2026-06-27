@@ -82,10 +82,9 @@ use super::oracle_static::{
     is_speed_unlock_sentence, lower_static_ir, parse_alternative_keyword_cost,
     parse_cast_spells_alternative_cost_multi, parse_chosen_creature_type_static_prefix,
     parse_collect_evidence_alt_cost, parse_every_creature_type_static_prefix,
-    parse_spells_alternative_cost, parse_flashback_trailing_self_spell_cost_reduction,
-    parse_static_line, parse_static_line_multi,
-    try_parse_graveyard_keyword_grant_clause, try_parse_graveyard_keyword_grant_static,
-    GraveyardGrantedKeywordKind,
+    parse_flashback_trailing_self_spell_cost_reduction, parse_spells_alternative_cost,
+    parse_static_line, parse_static_line_multi, try_parse_graveyard_keyword_grant_clause,
+    try_parse_graveyard_keyword_grant_static, GraveyardGrantedKeywordKind,
 };
 use super::oracle_trigger::{lower_trigger_ir, parse_trigger_lines_at_index};
 use super::oracle_util::{
@@ -3114,7 +3113,9 @@ pub(crate) fn parse_oracle_ir(
                 if let Some(kw) = parse_keyword_from_oracle(&flashback_lower) {
                     result.extracted_keywords.push(kw);
                 }
-                if let Some(def) = parse_flashback_trailing_self_spell_cost_reduction(reduction_part) {
+                if let Some(def) =
+                    parse_flashback_trailing_self_spell_cost_reduction(reduction_part)
+                {
                     result.statics.push(def);
                 }
                 i += 1;
@@ -3802,7 +3803,9 @@ pub(crate) fn parse_oracle_ir(
                 if let Some(kw) = parse_keyword_from_oracle(&flashback_lower) {
                     result.extracted_keywords.push(kw);
                 }
-                if let Some(def) = parse_flashback_trailing_self_spell_cost_reduction(reduction_part) {
+                if let Some(def) =
+                    parse_flashback_trailing_self_spell_cost_reduction(reduction_part)
+                {
                     result.statics.push(def);
                 }
                 i += 1;

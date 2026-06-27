@@ -305,20 +305,6 @@ pub(crate) fn try_parse_impose_additional_cost(
     )
 }
 
-/// CR 702.34a + CR 601.2f: Parse the trailing self-spell cost modifier from a
-/// compound Flashback line whose leading clause was already proven Flashback.
-pub(crate) fn parse_flashback_trailing_self_spell_cost_reduction(
-    text: &str,
-) -> Option<StaticDefinition> {
-    let text = strip_reminder_text(text);
-    let lower = text.to_lowercase();
-    try_parse_cost_modification(
-        &text,
-        &lower,
-        Some(crate::types::game_state::CastingVariant::Flashback),
-    )
-}
-
 /// Dynamic "for each" counts are extracted when present.
 pub(crate) fn try_parse_cost_modification(
     text: &str,

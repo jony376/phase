@@ -14656,7 +14656,7 @@ mod tests {
         use crate::types::actions::GameAction;
 
         let mut state = GameState::new_two_player(42);
-        for i in 0..2 {
+        for i in 0..3 {
             create_object(
                 &mut state,
                 CardId(300 + i),
@@ -14665,13 +14665,15 @@ mod tests {
                 Zone::Library,
             );
         }
-        create_object(
-            &mut state,
-            CardId(400),
-            PlayerId(0),
-            "Hand Card".to_string(),
-            Zone::Hand,
-        );
+        for i in 0..2 {
+            create_object(
+                &mut state,
+                CardId(400 + i),
+                PlayerId(0),
+                format!("Hand Card {i}"),
+                Zone::Hand,
+            );
+        }
         let source = create_object(
             &mut state,
             CardId(500),
@@ -14686,39 +14688,45 @@ mod tests {
         );
         let mut ability =
             crate::game::ability_utils::build_resolved_from_def(&def, source, PlayerId(0));
-        ability.set_chosen_x_recursive(1);
+        ability.set_chosen_x_recursive(2);
 
         let mut events = Vec::new();
         resolve_ability_chain(&mut state, &ability, &mut events, 0).unwrap();
 
-        assert!(
-            matches!(
-                state.waiting_for,
-                WaitingFor::UnlessPayment {
-                    player: PlayerId(0),
-                    ..
-                }
-            ),
-            "must pause at unless-sacrifice before discard, got {:?}",
-            state.waiting_for
-        );
-
-        apply_as_current(&mut state, GameAction::PayUnlessCost { pay: false }).unwrap();
-
-        let discard_pick = match &state.waiting_for {
-            WaitingFor::DiscardChoice { cards, .. } => Some(cards[0]),
-            _ => None,
-        };
-        if let Some(pick) = discard_pick {
-            apply_as_current(&mut state, GameAction::SelectCards { cards: vec![pick] }).unwrap();
+        let mut unless_prompts = 0;
+        while matches!(
+            state.waiting_for,
+            WaitingFor::UnlessPayment { player: PlayerId(0), .. }
+        ) {
+            unless_prompts += 1;
+            apply_as_current(&mut state, GameAction::PayUnlessCost { pay: false }).unwrap();
+            let discard_pick = match &state.waiting_for {
+                WaitingFor::DiscardChoice { cards, .. } => Some(cards[0]),
+                _ => None,
+            };
+            if let Some(pick) = discard_pick {
+                apply_as_current(&mut state, GameAction::SelectCards { cards: vec![pick] })
+                    .unwrap();
+            }
         }
 
         assert_eq!(
-            state.players[0].hand.len(),
-            1,
-            "draw one then discard one must net the starting hand size"
+            unless_prompts, 2,
+            "X=2 must produce two unless-sacrifice prompts"
         );
-        assert_eq!(state.players[0].graveyard.len(), 1);
+        assert_eq!(
+            state.players[0].hand.len(),
+            2,
+            "draw two then discard two must net the starting hand size"
+        );
+        assert_eq!(state.players[0].graveyard.len(), 2);
+        assert!(
+            !matches!(
+                state.waiting_for,
+                WaitingFor::UnlessPayment { .. } | WaitingFor::DiscardChoice { .. }
+            ),
+            "no extra unless/discard prompts after both iterations"
+        );
     }
 
     /// CR 608.2c — building-block discriminator for the per-player reveal-anaphora

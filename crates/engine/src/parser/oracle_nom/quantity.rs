@@ -2879,11 +2879,22 @@ pub(crate) fn parse_for_each_clause_ref_with_context<'a>(
     parse_for_each_clause_ref_with_they_controller(input, they_controller)
 }
 
+/// CR 608.2c + CR 609.3: Read the Runes — "for each card[s] drawn this way".
+fn parse_for_each_card_drawn_this_way(input: &str) -> OracleResult<'_, QuantityRef> {
+    let (rest, _) = alt((
+        tag::<_, _, OracleError<'_>>("card drawn this way"),
+        tag("cards drawn this way"),
+    ))
+    .parse(input)?;
+    Ok((rest, QuantityRef::EventContextAmount))
+}
+
 fn parse_for_each_clause_ref_with_they_controller(
     input: &str,
     they_controller: ControllerRef,
 ) -> OracleResult<'_, QuantityRef> {
     alt((
+        parse_for_each_card_drawn_this_way,
         parse_for_each_one_life_changed,
         parse_for_each_opponents_life_change,
         parse_counter_added_this_turn_for_each,
@@ -6389,6 +6400,13 @@ mod tests {
             },
             _ => panic!("expected ObjectCount"),
         }
+        assert_eq!(rest, "");
+    }
+
+    #[test]
+    fn test_parse_for_each_card_drawn_this_way() {
+        let (rest, q) = parse_for_each_clause_ref("card drawn this way").unwrap();
+        assert_eq!(q, QuantityRef::EventContextAmount);
         assert_eq!(rest, "");
     }
 

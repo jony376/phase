@@ -4,13 +4,15 @@ use crate::parser::oracle_nom::error::{OracleError, OracleResult};
 use nom::branch::alt;
 use nom::bytes::complete::{tag, take_until};
 use nom::character::complete::char;
+use nom::character::complete::multispace0;
 use nom::combinator::{all_consuming, opt, peek, value};
-use nom::sequence::{preceded, terminated};
+use nom::sequence::{preceded, terminated, tuple};
 use nom::Parser;
 
 use super::super::oracle_nom::bridge::{nom_on_lower, nom_parse_lower};
 use super::super::oracle_nom::condition::{
-    inject_controller_you, parse_cast_using_teamwork_phrase, try_parse_spell_target_has_superlative,
+    inject_controller_you, parse_cast_using_teamwork_phrase,
+    parse_spell_target_superlative_suffix,
 };
 use super::super::oracle_nom::primitives as nom_primitives;
 use super::super::oracle_nom::quantity as nom_quantity;
@@ -1890,20 +1892,30 @@ pub(super) fn strip_superlative_target_conditional(
     text: &str,
 ) -> (Option<AbilityCondition>, String) {
     let lower = text.to_lowercase();
-    let tp = TextPair::new(text, &lower);
-    let Some((before, after)) = tp.rsplit_around(" if it has the ") else {
-        return (None, text.to_string());
-    };
-    let suffix = after.original.trim_end_matches('.').trim();
-    let suffix_lower = after.lower.trim_end_matches('.').trim();
-    let Some(condition) = try_parse_spell_target_has_superlative(suffix_lower) else {
-        return (None, text.to_string());
-    };
-    let _ = suffix; // preserve original-case suffix for diagnostics if needed
-    (
-        Some(condition),
-        before.original.trim_end_matches('.').trim().to_string(),
-    )
+    let suffix_sep = " if ";
+    let mut best: Option<(usize, AbilityCondition)> = None;
+    for (idx, _) in lower.match_indices(suffix_sep) {
+        let suffix_orig = &text[idx + suffix_sep.len()..];
+        let suffix_lower = &lower[idx + suffix_sep.len()..];
+        if let Some((condition, rest)) = nom_on_lower(suffix_orig, suffix_lower, |input| {
+            terminated(
+                parse_spell_target_superlative_suffix,
+                tuple((opt(tag(".")), multispace0)),
+            )
+            .parse(input)
+        }) {
+            if rest.is_empty() {
+                best = Some((idx, condition));
+            }
+        }
+    }
+    if let Some((split_at, condition)) = best {
+        return (
+            Some(condition),
+            text[..split_at].trim_end_matches('.').trim().to_string(),
+        );
+    }
+    (None, text.to_string())
 }
 
 /// Parse the body of a leading mana-value conditional — "`<N>` or less/greater, [effect]" —
@@ -5758,6 +5770,35 @@ mod tests {
                 qty: QuantityRef::Aggregate {
                     function: AggregateFunction::Min,
                     property: ObjectProperty::Power,
+                    filter: TargetFilter::Typed(TypedFilter::creature()),
+                }
+            }
+        );
+    }
+
+    #[test]
+    fn strip_superlative_target_conditional_plural_subject() {
+        use crate::types::ability::{AggregateFunction, ObjectProperty};
+
+        let (condition, body) = strip_superlative_target_conditional(
+            "Destroy those creatures if they have the greatest toughness among creatures.",
+        );
+        assert_eq!(body, "Destroy those creatures");
+        let Some(AbilityCondition::QuantityCheck {
+            comparator,
+            rhs,
+            ..
+        }) = condition
+        else {
+            panic!("expected QuantityCheck, got {condition:?}");
+        };
+        assert_eq!(comparator, Comparator::GE);
+        assert_eq!(
+            rhs,
+            QuantityExpr::Ref {
+                qty: QuantityRef::Aggregate {
+                    function: AggregateFunction::Max,
+                    property: ObjectProperty::Toughness,
                     filter: TargetFilter::Typed(TypedFilter::creature()),
                 }
             }

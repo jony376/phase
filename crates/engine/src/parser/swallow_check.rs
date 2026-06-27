@@ -26,8 +26,8 @@ use super::oracle_ir::diagnostic::{CascadeSlot, OracleDiagnostic};
 use crate::types::ability::{
     AbilityCondition, AbilityDefinition, ActivationRestriction, Comparator, ContinuousModification,
     CopyRetargetPermission, Effect, FilterProp, ModalSelectionConstraint, OpponentMayScope,
-    PlayerFilter, QuantityExpr, ReplacementDefinition, ReplacementMode, StaticDefinition,
-    TargetFilter, TriggerDefinition,
+    PlayerFilter, QuantityExpr, QuantityRef, ReplacementDefinition, ReplacementMode,
+    StaticDefinition, TargetFilter, TriggerDefinition,
 };
 use crate::types::game_state::RetargetScope;
 use crate::types::keywords::Keyword;
@@ -4158,6 +4158,39 @@ mod tests {
                 .iter()
                 .all(|warning| { !matches!(warning, OracleDiagnostic::SwallowedClause { .. }) }),
             "Progenitor's Icon must not trigger swallowed clause warnings: {:?}",
+            parsed.parse_warnings
+        );
+    }
+
+    /// CR 601.2f + CR 700.5: Drag to the Underworld — devotion where-X self-spell
+    /// cost reduction must parse alongside destroy without swallowing either clause.
+    #[test]
+    fn drag_to_the_underworld_devotion_cost_reduction_parses_without_swallow() {
+        let parsed = parse_named(
+            "This spell costs {X} less to cast, where X is your devotion to black. (Each {B} in the mana costs of permanents you control counts toward your devotion to black.)\n\
+             Destroy target creature.",
+            "Drag to the Underworld",
+            &["Instant"],
+        );
+        assert_eq!(parsed.statics.len(), 1, "expected one self-spell cost static");
+        assert!(
+            matches!(
+                parsed.statics[0].mode,
+                StaticMode::ModifyCost {
+                    dynamic_count: Some(QuantityRef::Devotion { .. }),
+                    ..
+                }
+            ),
+            "expected devotion-bound ModifyCost, got {:?}",
+            parsed.statics[0].mode
+        );
+        assert_eq!(parsed.abilities.len(), 1);
+        assert!(
+            parsed
+                .parse_warnings
+                .iter()
+                .all(|warning| !matches!(warning, OracleDiagnostic::SwallowedClause { .. })),
+            "Drag to the Underworld must not swallow cost-reduction or destroy clauses: {:?}",
             parsed.parse_warnings
         );
     }

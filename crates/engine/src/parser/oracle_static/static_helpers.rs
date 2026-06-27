@@ -603,6 +603,14 @@ pub(crate) fn try_parse_cost_modification(
         }
     }
 
+    // CR 601.2f: {X}-flavored self-spell reductions must bind X to a quantity
+    // (devotion, object counts, etc.). Emitting ModifyCost with multiplier 1
+    // and no dynamic_count silently under-reduces by {1} (Drag to the Underworld
+    // class when the where-X clause fails to lower).
+    if amount_is_variable_x && dynamic_count.is_none() {
+        return None;
+    }
+
     let amount = if amount_is_variable_x {
         ManaCost::generic(1)
     } else {

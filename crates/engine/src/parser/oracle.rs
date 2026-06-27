@@ -17824,6 +17824,53 @@ Artifacts you control have \"{T}: Add {U}. Spend this mana only to cast a spell 
     }
 
     #[test]
+    fn drag_to_the_underworld_devotion_cost_reduction_and_destroy_parse() {
+        use crate::types::ability::DevotionColors;
+
+        let r = parse(
+            "This spell costs {X} less to cast, where X is your devotion to black. (Each {B} in the mana costs of permanents you control counts toward your devotion to black.)\n\
+             Destroy target creature.",
+            "Drag to the Underworld",
+            &[],
+            &["Instant"],
+            &[],
+        );
+
+        assert_eq!(r.statics.len(), 1);
+        let StaticMode::ModifyCost {
+            mode: CostModifyMode::Reduce,
+            amount: ManaCost::Cost { generic: 1, .. },
+            dynamic_count:
+                Some(QuantityRef::Devotion {
+                    colors: DevotionColors::Fixed(colors),
+                }),
+            ..
+        } = &r.statics[0].mode
+        else {
+            panic!(
+                "expected devotion-bound self-spell ReduceCost, got {:?}",
+                r.statics[0].mode
+            );
+        };
+        assert_eq!(*colors, vec![ManaColor::Black]);
+        assert!(matches!(r.statics[0].affected, Some(TargetFilter::SelfRef)));
+        assert_eq!(r.abilities.len(), 1);
+        assert!(
+            matches!(*r.abilities[0].effect, Effect::Destroy { .. }),
+            "destroy effect must be preserved, got {:?}",
+            r.abilities[0].effect
+        );
+        assert!(
+            r.parse_warnings
+                .iter()
+                .all(|warning| warning.to_string().split_whitespace().next()
+                    != Some("Swallow:DynamicQty")),
+            "unexpected DynamicQty warning: {:?}",
+            r.parse_warnings
+        );
+    }
+
+    #[test]
     fn spell_cost_reduction_for_creatures_that_attacked_stays_static() {
         let r = parse(
             "This spell costs {1} less to cast for each creature that attacked this turn.\nDraw three cards.",

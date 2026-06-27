@@ -21186,6 +21186,94 @@ mod tests {
         );
     }
 
+    /// CR 601.2f + CR 700.5: Drag to the Underworld — devotion where-X self-spell
+    /// cost reduction must apply from hand using parser-emitted statics.
+    #[test]
+    fn drag_to_the_underworld_devotion_cost_reduction_applies_from_hand() {
+        use crate::types::ability::{DevotionColors, QuantityRef};
+        use crate::types::mana::ManaCostShard;
+        use crate::types::statics::StaticMode;
+        use crate::types::mana::ManaColor;
+
+        let mut state = setup_game_at_main_phase();
+        let parsed = crate::parser::oracle::parse_oracle_text(
+            "This spell costs {X} less to cast, where X is your devotion to black. (Each {B} in the mana costs of permanents you control counts toward your devotion to black.)\n\
+             Destroy target creature.",
+            "Drag to the Underworld",
+            &[],
+            &[String::from("Instant")],
+            &[],
+        );
+        assert_eq!(parsed.statics.len(), 1, "expected one self-spell cost static");
+        assert!(
+            matches!(
+                parsed.statics[0].mode,
+                StaticMode::ModifyCost {
+                    dynamic_count: Some(QuantityRef::Devotion {
+                        colors: DevotionColors::Fixed(ref colors),
+                    }),
+                    ..
+                } if *colors == vec![ManaColor::Black]
+            ),
+            "expected devotion-bound ModifyCost, got {:?}",
+            parsed.statics[0].mode
+        );
+
+        let spell_id = create_object(
+            &mut state,
+            CardId(994),
+            PlayerId(0),
+            "Drag to the Underworld".to_string(),
+            Zone::Hand,
+        );
+        {
+            let obj = state.objects.get_mut(&spell_id).unwrap();
+            obj.card_types.core_types.push(CoreType::Instant);
+            obj.mana_cost = ManaCost::Cost {
+                shards: vec![ManaCostShard::Black, ManaCostShard::Black],
+                generic: 2,
+            };
+            for static_def in parsed.statics {
+                obj.static_definitions.push(static_def.clone());
+                Arc::make_mut(&mut obj.base_static_definitions).push(static_def);
+            }
+            obj.abilities = Arc::new(parsed.abilities.clone());
+            obj.base_abilities = Arc::new(parsed.abilities);
+        }
+
+        for (i, black_pips) in [(995u64, 1), (996, 2)] {
+            let permanent = create_object(
+                &mut state,
+                CardId(i),
+                PlayerId(0),
+                format!("Devotion Permanent {i}"),
+                Zone::Battlefield,
+            );
+            let obj = state.objects.get_mut(&permanent).unwrap();
+            obj.card_types.core_types.push(CoreType::Creature);
+            obj.mana_cost = ManaCost::Cost {
+                shards: vec![ManaCostShard::Black; black_pips as usize],
+                generic: 0,
+            };
+        }
+
+        let mut mana_cost = state.objects.get(&spell_id).unwrap().mana_cost.clone();
+        super::super::casting::apply_self_spell_cost_modifiers(
+            &state,
+            PlayerId(0),
+            spell_id,
+            &mut mana_cost,
+        );
+
+        match mana_cost {
+            ManaCost::Cost { generic, shards } => {
+                assert_eq!(generic, 0, "devotion 3 must reduce {2} generic to {0}");
+                assert_eq!(shards, vec![ManaCostShard::Black, ManaCostShard::Black]);
+            }
+            other => panic!("expected ManaCost::Cost, got {other:?}"),
+        }
+    }
+
     /// CR 903.8 + CR 601.2f: A commander cast from the command zone still uses
     /// self-spell cost modifications printed on that card. Ghalta's "This
     /// spell costs {X} less..." must therefore function from Command as well

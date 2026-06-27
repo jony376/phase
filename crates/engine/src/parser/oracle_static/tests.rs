@@ -2533,6 +2533,44 @@ fn heliod_warped_eclipse_cost_reduction_counts_opponents_draws() {
 }
 
 #[test]
+fn drag_to_the_underworld_self_cost_reduction_binds_devotion_to_black() {
+    use crate::types::ability::DevotionColors;
+    use crate::types::mana::ManaColor;
+
+    let def = parse_static_line(
+        "This spell costs {X} less to cast, where X is your devotion to black.",
+    )
+    .unwrap();
+
+    let StaticMode::ModifyCost {
+        mode: CostModifyMode::Reduce,
+        amount: ManaCost::Cost { generic: 1, .. },
+        dynamic_count:
+            Some(QuantityRef::Devotion {
+                colors: DevotionColors::Fixed(colors),
+            }),
+        ..
+    } = def.mode
+    else {
+        panic!("expected devotion-bound self-spell ReduceCost, got {:?}", def.mode);
+    };
+    assert_eq!(colors, vec![ManaColor::Black]);
+    assert!(matches!(def.affected, Some(TargetFilter::SelfRef)));
+    assert_eq!(
+        def.active_zones,
+        crate::types::zones::self_spell_cost_mod_active_zones()
+    );
+}
+
+#[test]
+fn variable_x_self_cost_reduction_without_where_x_binding_is_rejected() {
+    assert!(
+        parse_static_line("This spell costs {X} less to cast.").is_none(),
+        "unbound {X} self-spell reduction must not lower to a silent {{1}} reducer"
+    );
+}
+
+#[test]
 fn ghalta_self_cost_reduction_is_active_from_command_zone() {
     let def = parse_static_line(
         "This spell costs {X} less to cast, where X is the total power of creatures you control.",

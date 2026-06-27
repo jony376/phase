@@ -22142,8 +22142,8 @@ fn parse_unless_have_you_draw_cost(after_unless: &str) -> Option<AbilityCost> {
     .parse(after_unless)
     .ok()?;
     all_consuming(terminated(
-        tag("you draw a card"),
-        opt(tag(".")),
+        tag::<_, _, OracleError<'_>>("you draw a card"),
+        opt(tag::<_, _, OracleError<'_>>(".")),
     ))
     .parse(rest)
     .ok()?;

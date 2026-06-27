@@ -4183,10 +4183,12 @@ mod tests {
         assert!(
             parsed.statics.iter().any(|sd| {
                 matches!(sd.mode, StaticMode::ModifyCost { .. })
-                    && sd.condition.as_ref().is_some_and(|cond| matches!(
-                        cond,
-                        crate::types::ability::StaticCondition::CastingAsVariant { .. }
-                    ))
+                    && sd.condition.as_ref().is_some_and(|cond| {
+                        matches!(
+                            cond,
+                            crate::types::ability::StaticCondition::CastingAsVariant { .. }
+                        )
+                    })
             }),
             "expected flashback-gated ReduceCost static, got {:?}",
             parsed.statics

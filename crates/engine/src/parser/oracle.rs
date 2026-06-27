@@ -44,10 +44,9 @@ use super::oracle_classifier::{
     is_compound_turn_limit, is_defiler_cost_pattern, is_enters_tapped_cant_untap_compound,
     is_enters_with_counter_replacement_line, is_enters_with_counter_trigger,
     is_flashback_equal_mana_cost, is_granted_static_line, is_instead_replacement_line,
-    split_flashback_trailing_self_spell_cost_reduction,
     is_opening_hand_begin_game, is_pay_life_as_colored_mana_pattern, is_replacement_pattern,
     is_spells_alternative_cost_pattern, is_static_pattern, is_vehicle_tier_line, lower_starts_with,
-    should_defer_spell_to_effect,
+    should_defer_spell_to_effect, split_flashback_trailing_self_spell_cost_reduction,
 };
 use super::oracle_condition::parse_restriction_condition;
 use super::oracle_cost::{parse_oracle_cost, try_parse_cost_reduction};
@@ -3511,13 +3510,33 @@ pub(crate) fn parse_oracle_ir(
         // otherwise route it to the spell-effect catch-all and produce
         // `Unimplemented`. Intercept it here, before the spell catch-all, and
         // delegate to `parse_keyword_from_oracle`'s em-dash dispatcher.
-        if lower_starts_with(&lower, "flashback") && line.contains('\u{2014}') {
-            // Strip trailing punctuation so the em-dash dispatcher sees a clean
-            // cost string. Reminder text was already removed by `strip_reminder_text`
-            // upstream, but the trailing period from "Pay 3 life." remains.
-            let lower_clean = lower.trim_end_matches('.').trim();
-            if let Some(kw) = parse_keyword_from_oracle(lower_clean) {
-                result.extracted_keywords.push(kw);
+        //
+        // Visions of Ruin also prints a period-separated compound line:
+        // "Flashback {8}{R}{R}. This spell costs {X} less to cast this way, …".
+        // `is_keyword_cost_line` matches that line at Priority 9 but
+        // `parse_keyword_from_oracle` fails on the full text, so split the
+        // trailing self-spell reduction before the spell catch-all.
+        if lower_starts_with(&lower, "flashback") {
+            if line.contains('\u{2014}') {
+                // Strip trailing punctuation so the em-dash dispatcher sees a clean
+                // cost string. Reminder text was already removed by `strip_reminder_text`
+                // upstream, but the trailing period from "Pay 3 life." remains.
+                let lower_clean = lower.trim_end_matches('.').trim();
+                if let Some(kw) = parse_keyword_from_oracle(lower_clean) {
+                    result.extracted_keywords.push(kw);
+                    i += 1;
+                    continue;
+                }
+            } else if let Some((flashback_part, reduction_part)) =
+                split_flashback_trailing_self_spell_cost_reduction(&line, &lower)
+            {
+                let flashback_lower = flashback_part.to_lowercase();
+                if let Some(kw) = parse_keyword_from_oracle(&flashback_lower) {
+                    result.extracted_keywords.push(kw);
+                }
+                if let Some(def) = parse_static_line(reduction_part) {
+                    result.statics.push(def);
+                }
                 i += 1;
                 continue;
             }

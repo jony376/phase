@@ -2456,15 +2456,19 @@ fn visions_of_ruin_cast_this_way_cost_reduction_binds_commander_mv() {
 
     let StaticMode::ModifyCost {
         mode: CostModifyMode::Reduce,
-        dynamic_count: Some(QuantityRef::Aggregate {
-            function: AggregateFunction::Max,
-            property: ObjectProperty::ManaValue,
-            ..
-        }),
+        dynamic_count:
+            Some(QuantityRef::Aggregate {
+                function: AggregateFunction::Max,
+                property: ObjectProperty::ManaValue,
+                ..
+            }),
         ..
     } = def.mode
     else {
-        panic!("expected commander-MV dynamic ReduceCost, got {:?}", def.mode);
+        panic!(
+            "expected commander-MV dynamic ReduceCost, got {:?}",
+            def.mode
+        );
     };
     assert!(matches!(
         def.condition,

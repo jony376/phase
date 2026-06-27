@@ -4860,14 +4860,8 @@ pub(super) fn apply_target_dependent_cost_modifiers(
             *mana_cost = super::restrictions::add_mana_cost(mana_cost, &strive_cost);
         }
     }
-    let mut collected = collect_self_spell_cost_modifiers(
-        state,
-        player,
-        object_id,
-        Some(ability),
-        true,
-        None,
-    );
+    let mut collected =
+        collect_self_spell_cost_modifiers(state, player, object_id, Some(ability), true, None);
     collected.extend(collect_battlefield_cost_modifiers(
         state,
         player,
@@ -5054,14 +5048,8 @@ pub(super) fn apply_self_spell_cost_modifiers_with_selected_targets(
     ability: &ResolvedAbility,
     mana_cost: &mut ManaCost,
 ) {
-    let collected = collect_self_spell_cost_modifiers(
-        state,
-        caster,
-        spell_id,
-        Some(ability),
-        true,
-        None,
-    );
+    let collected =
+        collect_self_spell_cost_modifiers(state, caster, spell_id, Some(ability), true, None);
     apply_cost_modifications_in_order(mana_cost, &collected);
 }
 
@@ -5085,13 +5073,9 @@ fn self_spell_cost_condition_matches(
         StaticCondition::Or { conditions } => conditions.iter().any(|cond| {
             self_spell_cost_condition_matches(state, cond, caster, spell_id, casting_variant)
         }),
-        StaticCondition::Not { condition } => !self_spell_cost_condition_matches(
-            state,
-            condition,
-            caster,
-            spell_id,
-            casting_variant,
-        ),
+        StaticCondition::Not { condition } => {
+            !self_spell_cost_condition_matches(state, condition, caster, spell_id, casting_variant)
+        }
         StaticCondition::CastingAsVariant { variant } => casting_variant == Some(*variant),
         _ => super::layers::evaluate_condition(state, condition, caster, spell_id),
     }
@@ -5171,13 +5155,7 @@ fn collect_self_spell_cost_modifiers(
 
         // CR 604.1: Evaluate any trailing condition ("if you control a Wizard").
         if let Some(ref cond) = def.condition {
-            if !self_spell_cost_condition_matches(
-                state,
-                cond,
-                caster,
-                spell_id,
-                casting_variant,
-            ) {
+            if !self_spell_cost_condition_matches(state, cond, caster, spell_id, casting_variant) {
                 continue;
             }
         }
@@ -14813,7 +14791,7 @@ mod tests {
 
     #[test]
     fn visions_of_ruin_flashback_commander_mv_reduces_flashback_cost() {
-        use crate::types::ability::{AggregateFunction, ObjectProperty, QuantityRef};
+        use crate::types::ability::{AggregateFunction, Effect, ObjectProperty, QuantityExpr, QuantityRef};
         use crate::types::keywords::{FlashbackCost, Keyword};
         use crate::types::statics::StaticMode;
 
@@ -14849,10 +14827,21 @@ mod tests {
                 shards: vec![ManaCostShard::Red],
                 generic: 3,
             };
-            obj.keywords.push(Keyword::Flashback(FlashbackCost::Mana(ManaCost::Cost {
-                shards: vec![ManaCostShard::Red, ManaCostShard::Red],
-                generic: 8,
-            })));
+            obj.keywords
+                .push(Keyword::Flashback(FlashbackCost::Mana(ManaCost::Cost {
+                    shards: vec![ManaCostShard::Red, ManaCostShard::Red],
+                    generic: 8,
+                })));
+            obj.base_keywords = obj.keywords.clone();
+            let ability = AbilityDefinition::new(
+                AbilityKind::Spell,
+                Effect::Draw {
+                    count: QuantityExpr::Fixed { value: 1 },
+                    target: TargetFilter::Controller,
+                },
+            );
+            Arc::make_mut(&mut obj.abilities).push(ability.clone());
+            Arc::make_mut(&mut obj.base_abilities).push(ability);
             let mut def = StaticDefinition::new(StaticMode::ModifyCost {
                 mode: CostModifyMode::Reduce,
                 amount: ManaCost::generic(1),

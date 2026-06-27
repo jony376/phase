@@ -28456,8 +28456,8 @@ mod tests {
             AbilityKind::Spell,
         );
         assert!(
-            matches!(*def.effect, Effect::ChangeZone { .. }),
-            "primary effect should remain ChangeZone, got {:?}",
+            matches!(*def.effect, Effect::Bounce { .. }),
+            "primary effect should remain Bounce, got {:?}",
             def.effect
         );
         let unless_pay = def

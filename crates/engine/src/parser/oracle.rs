@@ -17871,6 +17871,49 @@ Artifacts you control have \"{T}: Add {U}. Spend this mana only to cast a spell 
     }
 
     #[test]
+    fn read_the_runes_draw_discard_unless_sacrifice_permanent_parse() {
+        let r = parse(
+            "Draw X cards. For each card drawn this way, discard a card unless you sacrifice a permanent.",
+            "Read the Runes",
+            &[],
+            &["Instant"],
+            &[],
+        );
+        assert_eq!(r.abilities.len(), 1);
+        assert!(
+            matches!(*r.abilities[0].effect, Effect::Draw { .. }),
+            "expected Draw root, got {:?}",
+            r.abilities[0].effect
+        );
+        let sub = r.abilities[0]
+            .sub_ability
+            .as_ref()
+            .expect("expected discard sub_ability");
+        assert!(
+            matches!(
+                sub.repeat_for,
+                Some(QuantityExpr::Ref {
+                    qty: QuantityRef::EventContextAmount,
+                })
+            ),
+            "expected EventContextAmount repeat_for, got {:?}",
+            sub.repeat_for
+        );
+        assert!(
+            sub.unless_pay.is_some(),
+            "discard loop must attach unless_pay sacrifice alternative"
+        );
+        assert!(
+            r.parse_warnings
+                .iter()
+                .all(|warning| warning.to_string().split_whitespace().next()
+                    != Some("Swallow:Condition_Unless")),
+            "unless clause must not be swallowed: {:?}",
+            r.parse_warnings
+        );
+    }
+
+    #[test]
     fn spell_cost_reduction_for_creatures_that_attacked_stays_static() {
         let r = parse(
             "This spell costs {1} less to cast for each creature that attacked this turn.\nDraw three cards.",

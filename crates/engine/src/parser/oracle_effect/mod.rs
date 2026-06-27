@@ -22475,6 +22475,21 @@ fn extract_resolution_unless_pay_modifier(
     if let Some((before_unless, _, after_unless_lower)) =
         nom_primitives::scan_preceded(&lower, |i| tag::<_, _, OracleError<'_>>("unless ").parse(i))
     {
+        // CR 118.12a: "unless you sacrifice/discard/exile/..." — the ability
+        // controller is the payer (Read the Runes: discard unless you sacrifice
+        // a permanent). Delegates to the trigger-side single authority.
+        if let Some(cost) =
+            crate::parser::oracle_trigger::parse_unless_alt_cost(after_unless_lower)
+        {
+            let cleaned = text[..before_unless.trim_end().len()].trim().to_string();
+            return (
+                cleaned,
+                Some(UnlessPayModifier {
+                    cost,
+                    payer: TargetFilter::Controller,
+                }),
+            );
+        }
         if let Some(cost) = parse_unless_have_deal_damage_cost(after_unless_lower) {
             let cleaned = text[..before_unless.trim_end().len()].trim().to_string();
             return (
@@ -32018,6 +32033,63 @@ mod tests {
                 target: TargetFilter::Controller,
             }
         ));
+    }
+
+    /// CR 608.2c + CR 701.9 + CR 118.12: Read the Runes — draw X, then for each
+    /// card drawn discard unless you sacrifice a permanent.
+    #[test]
+    fn read_the_runes_draw_then_discard_unless_sacrifice_permanent() {
+        use crate::types::ability::{AbilityCost, SacrificeCost};
+
+        let def = parse_effect_chain(
+            "Draw X cards. For each card drawn this way, discard a card unless you sacrifice a permanent.",
+            AbilityKind::Spell,
+        );
+        assert!(
+            matches!(
+                &*def.effect,
+                Effect::Draw {
+                    count: QuantityExpr::Ref {
+                        qty: QuantityRef::Variable { name },
+                    },
+                    ..
+                } if name == "X"
+            ),
+            "root must be Draw(X), got {:?}",
+            def.effect
+        );
+        let sub = def
+            .sub_ability
+            .as_ref()
+            .expect("discard loop must chain after draw");
+        assert!(
+            matches!(
+                sub.repeat_for,
+                Some(QuantityExpr::Ref {
+                    qty: QuantityRef::EventContextAmount,
+                })
+            ),
+            "repeat_for must bind to cards drawn this way, got {:?}",
+            sub.repeat_for
+        );
+        assert!(
+            matches!(&*sub.effect, Effect::Discard { .. }),
+            "repeated body must discard, got {:?}",
+            sub.effect
+        );
+        let unless_pay = sub
+            .unless_pay
+            .as_ref()
+            .expect("discard must carry unless_pay sacrifice alternative");
+        assert_eq!(unless_pay.payer, TargetFilter::Controller);
+        assert!(
+            matches!(
+                &unless_pay.cost,
+                AbilityCost::Sacrifice(SacrificeCost { .. })
+            ),
+            "unless cost must be Sacrifice, got {:?}",
+            unless_pay.cost
+        );
     }
 
     #[test]

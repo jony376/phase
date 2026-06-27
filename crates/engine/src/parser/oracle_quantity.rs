@@ -2666,6 +2666,16 @@ fn parse_for_each_clause_with_they_controller(
         if try_parse_counters_removed_this_way(&lower) {
             return Some(QuantityRef::PreviousEffectAmount);
         }
+        // CR 608.2c + CR 609.3: "card[s] drawn this way" — the count of cards
+        // just drawn by the immediately preceding draw instruction in the same
+        // resolution (Read the Runes). `EventContextAmount` reads the draw
+        // count stamped on `last_effect_count` by the parent Draw effect.
+        if matches!(
+            lower.as_str(),
+            "card drawn this way" | "cards drawn this way"
+        ) {
+            return Some(QuantityRef::EventContextAmount);
+        }
         // CR 608.2c + CR 400.7: "nontoken creature you controlled that was
         // destroyed this way" — tracked set members matching the filter prefix.
         // Use terminated(take_until(suffix), tag(suffix)) to split the clause
@@ -6566,6 +6576,14 @@ mod tests {
             },
             other => panic!("expected FilteredTrackedSetSize, got {other:?}"),
         }
+    }
+
+    /// CR 608.2c + CR 609.3: Read the Runes — "for each card drawn this way"
+    /// binds repeat count to the parent draw via `EventContextAmount`.
+    #[test]
+    fn card_drawn_this_way_uses_event_context_amount() {
+        let qty = parse_for_each_clause("card drawn this way").expect("must parse");
+        assert_eq!(qty, QuantityRef::EventContextAmount);
     }
 
     /// CR 608.2c + CR 701.9a: "nonland card discarded this way" (Seasoned

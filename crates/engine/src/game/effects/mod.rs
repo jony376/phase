@@ -14642,8 +14642,72 @@ mod tests {
 
         assert_eq!(state.players[0].hand.len(), 3);
         assert_eq!(state.players[1].hand.len(), 3);
-        assert_eq!(state.players[0].graveyard.len(), 3);
+        assert_eq!(state.players[0].graveyard.len(), 1);
         assert_eq!(state.players[1].graveyard.len(), 1);
+    }
+
+    /// CR 608.2c + CR 118.12 + CR 701.9: Read the Runes — draw X, then for
+    /// each card drawn discard unless you sacrifice; declining the sacrifice
+    /// performs the discard.
+    #[test]
+    fn read_the_runes_declining_sacrifice_discards_per_card_drawn() {
+        use crate::game::engine::apply_as_current;
+        use crate::types::ability::AbilityKind;
+        use crate::types::actions::GameAction;
+
+        let mut state = GameState::new_two_player(42);
+        for i in 0..2 {
+            create_object(
+                &mut state,
+                CardId(300 + i),
+                PlayerId(0),
+                format!("Library {i}"),
+                Zone::Library,
+            );
+        }
+        create_object(
+            &mut state,
+            CardId(400),
+            PlayerId(0),
+            "Hand Card".to_string(),
+            Zone::Hand,
+        );
+        let source = create_object(
+            &mut state,
+            CardId(500),
+            PlayerId(0),
+            "Read the Runes".to_string(),
+            Zone::Stack,
+        );
+
+        let def = crate::parser::oracle_effect::parse_effect_chain(
+            "Draw X cards. For each card drawn this way, discard a card unless you sacrifice a permanent.",
+            AbilityKind::Spell,
+        );
+        let mut ability =
+            crate::game::ability_utils::build_resolved_from_def(&def, source, PlayerId(0));
+        ability.set_chosen_x_recursive(1);
+
+        let mut events = Vec::new();
+        resolve_ability_chain(&mut state, &ability, &mut events, 0).unwrap();
+
+        assert!(
+            matches!(
+                state.waiting_for,
+                WaitingFor::UnlessPayment { player: PlayerId(0), .. }
+            ),
+            "must pause at unless-sacrifice before discard, got {:?}",
+            state.waiting_for
+        );
+
+        apply_as_current(&mut state, GameAction::PayUnlessCost { pay: false }).unwrap();
+
+        assert_eq!(
+            state.players[0].hand.len(),
+            1,
+            "draw one then discard one must net the starting hand size"
+        );
+        assert_eq!(state.players[0].graveyard.len(), 1);
     }
 
     /// CR 608.2c — building-block discriminator for the per-player reveal-anaphora

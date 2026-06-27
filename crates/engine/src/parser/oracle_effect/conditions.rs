@@ -6,13 +6,12 @@ use nom::bytes::complete::{tag, take_until};
 use nom::character::complete::char;
 use nom::character::complete::multispace0;
 use nom::combinator::{all_consuming, opt, peek, value};
-use nom::sequence::{preceded, terminated, tuple};
+use nom::sequence::{preceded, terminated};
 use nom::Parser;
 
 use super::super::oracle_nom::bridge::{nom_on_lower, nom_parse_lower};
 use super::super::oracle_nom::condition::{
-    inject_controller_you, parse_cast_using_teamwork_phrase,
-    parse_spell_target_superlative_suffix,
+    inject_controller_you, parse_cast_using_teamwork_phrase, parse_spell_target_superlative_suffix,
 };
 use super::super::oracle_nom::primitives as nom_primitives;
 use super::super::oracle_nom::quantity as nom_quantity;
@@ -1900,7 +1899,7 @@ pub(super) fn strip_superlative_target_conditional(
         if let Some((condition, rest)) = nom_on_lower(suffix_orig, suffix_lower, |input| {
             terminated(
                 parse_spell_target_superlative_suffix,
-                tuple((opt(tag(".")), multispace0)),
+                (opt(tag(".")), multispace0),
             )
             .parse(input)
         }) {
@@ -5784,11 +5783,7 @@ mod tests {
             "Destroy those creatures if they have the greatest toughness among creatures.",
         );
         assert_eq!(body, "Destroy those creatures");
-        let Some(AbilityCondition::QuantityCheck {
-            comparator,
-            rhs,
-            ..
-        }) = condition
+        let Some(AbilityCondition::QuantityCheck { comparator, rhs, .. }) = condition
         else {
             panic!("expected QuantityCheck, got {condition:?}");
         };

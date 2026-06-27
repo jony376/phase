@@ -2205,7 +2205,9 @@ fn build_superlative_comparison(
 /// (Wretched Banquet body). Uses `ObjectScope::Target` on the LHS and a
 /// population aggregate without `OtherThanTriggerObject` — distinct from the
 /// trigger-anchored `build_superlative_comparison` form.
-pub(crate) fn parse_spell_target_has_superlative(input: &str) -> OracleResult<'_, AbilityCondition> {
+pub(crate) fn parse_spell_target_has_superlative(
+    input: &str,
+) -> OracleResult<'_, AbilityCondition> {
     let (rest, aggregate) = parse_superlative_adjective(input)?;
     let (rest, _) = tag::<_, _, OracleError<'_>>(" ").parse(rest)?;
     let (rest, property) = parse_property_keyword(rest)?;
@@ -2261,11 +2263,6 @@ pub(crate) fn parse_spell_target_superlative_suffix(
         parse_spell_target_has_superlative,
     )
     .parse(input)
-}
-
-/// Option wrapper for call sites that probe without error propagation.
-pub(crate) fn try_parse_spell_target_has_superlative(input: &str) -> Option<AbilityCondition> {
-    super::bridge::nom_parse_lower(input, parse_spell_target_has_superlative)
 }
 
 /// Attach `FilterProp::OtherThanTriggerObject` to a `TargetFilter`'s property

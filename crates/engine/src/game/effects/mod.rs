@@ -14710,13 +14710,7 @@ mod tests {
             _ => None,
         };
         if let Some(pick) = discard_pick {
-            apply_as_current(
-                &mut state,
-                GameAction::SelectCards {
-                    cards: vec![pick],
-                },
-            )
-            .unwrap();
+            apply_as_current(&mut state, GameAction::SelectCards { cards: vec![pick] }).unwrap();
         }
 
         assert_eq!(

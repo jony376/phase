@@ -2895,6 +2895,7 @@ mod tests {
     use crate::parser::oracle_ir::diagnostic::OracleDiagnostic;
     use crate::types::ability::{AbilityDefinition, Effect, OutsideGameSourcePool, TargetFilter};
     use crate::types::identifiers::TrackedSetId;
+    use crate::types::keywords::Keyword;
     use crate::types::mana::ManaCost;
     use crate::types::statics::StaticMode;
     use crate::types::zones::Zone;

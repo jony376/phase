@@ -3222,6 +3222,7 @@ pub(crate) fn static_condition_to_trigger_condition(
         // CR 702.166a: Bargain payment is a cost-determination predicate with no
         // intervening-if (`TriggerCondition`) equivalent.
         | StaticCondition::AdditionalCostPaid
+        | StaticCondition::CastingAsVariant { .. }
         | StaticCondition::None => None,
 
         // CR 309.7: Dungeon completion bridges directly.

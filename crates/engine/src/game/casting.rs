@@ -4,8 +4,8 @@ use crate::types::ability::{
     ContinuousModification, CostObjectCount, CostPaidObjectSnapshot, CounterCostSelection,
     Duration, Effect, FilterProp, GameRestriction, ModalSelectionCondition, ObjectScope,
     PlayerFilter, PlayerScope, ProhibitedActivity, QuantityExpr, QuantityRef, ResolvedAbility,
-    RestrictionExpiry, RestrictionPlayerScope, StaticDefinition, TapCreaturesRequirement,
-    TargetFilter, TargetRef,
+    RestrictionExpiry, RestrictionPlayerScope, StaticCondition, StaticDefinition,
+    TapCreaturesRequirement, TargetFilter, TargetRef,
 };
 use crate::types::actions::AlternativeCastDecision;
 use crate::types::card::LayoutKind;
@@ -14876,9 +14876,9 @@ mod tests {
                 }),
             })
             .affected(TargetFilter::SelfRef)
-            .condition(Some(StaticCondition::CastingAsVariant {
+            .condition(StaticCondition::CastingAsVariant {
                 variant: CastingVariant::Flashback,
-            }));
+            });
             def.active_zones = crate::types::zones::self_spell_cost_mod_active_zones();
             obj.static_definitions.push(def);
         }

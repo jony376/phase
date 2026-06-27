@@ -3534,6 +3534,7 @@ fn fmt_static_condition(cond: &StaticCondition) -> String {
         SC::SourceInZone { zone } => format!("source is in {}", fmt_zone(zone)),
         SC::EnchantedIsFaceDown => "enchanted creature is face-down".into(),
         SC::AdditionalCostPaid => "additional cost was paid".into(),
+        SC::CastingAsVariant { variant } => format!("casting as {variant:?}"),
         SC::None => "none".into(),
     }
 }

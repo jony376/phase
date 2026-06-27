@@ -3269,6 +3269,7 @@ pub(crate) fn static_condition_to_ability_condition(
         // target-relative tap condition (Zygon Infiltrator's copy duration), not
         // an effect-resolution gate — no `AbilityCondition` equivalent.
         | StaticCondition::IsTapped { .. }
+        | StaticCondition::CastingAsVariant { .. }
         | StaticCondition::None => None,
     }
 }

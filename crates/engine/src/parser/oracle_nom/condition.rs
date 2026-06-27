@@ -7927,32 +7927,30 @@ mod tests {
     /// gates the alternative casting cost.
     #[test]
     fn test_creatures_are_attacking_count_ge() {
-        let (rest, c) =
-            parse_inner_condition("three or more creatures are attacking").unwrap();
+        let (rest, c) = parse_inner_condition("three or more creatures are attacking").unwrap();
         assert_eq!(rest, "");
         match c {
             StaticCondition::QuantityComparison {
-                lhs: QuantityExpr::Ref {
-                    qty: QuantityRef::ObjectCount { filter },
-                },
+                lhs:
+                    QuantityExpr::Ref {
+                        qty: QuantityRef::ObjectCount { filter },
+                    },
                 comparator: Comparator::GE,
                 rhs: QuantityExpr::Fixed { value: 3 },
             } => {
                 if let TargetFilter::Typed(tf) = filter {
                     assert!(tf.type_filters.contains(&TypeFilter::Creature));
                     assert!(
-                        tf.properties.iter().any(
-                            |p| matches!(p, FilterProp::Attacking { defender: None })
-                        ),
+                        tf.properties
+                            .iter()
+                            .any(|p| matches!(p, FilterProp::Attacking { defender: None })),
                         "expected Attacking filter, got {tf:?}"
                     );
                 } else {
                     panic!("expected Typed creature filter, got {filter:?}");
                 }
             }
-            other => panic!(
-                "expected QuantityComparison GE 3 attacking creatures, got {other:?}"
-            ),
+            other => panic!("expected QuantityComparison GE 3 attacking creatures, got {other:?}"),
         }
     }
 

@@ -4135,7 +4135,7 @@ mod tests {
         }
     }
 
-    /// CR 601.2f + CR 205.2a: Progenitor's Icon's chosen-type next-spell flash
+    /// CR 601.2f + CR 607.2d: Progenitor's Icon's chosen-type next-spell flash
     /// grant must parse without swallowing the "of the chosen type" qualifier.
     #[test]
     fn progenitors_icon_chosen_type_next_spell_flash_do_not_swallow() {

@@ -2071,12 +2071,13 @@ fn parse_next_spell_subject(input: &str) -> OracleResult<'_, (PlayerScope, bool)
     .parse(input)
 }
 
-/// CR 205.2a + CR 601.2f: Attach the chosen-type discriminator stripped from
-/// "the next [type] spell of the chosen type you cast this turn" grants
-/// (Progenitor's Icon). Mirrors `oracle_static::static_helpers` cost-mod
-/// pairing: a creature-typed prefix uses `IsChosenCreatureType`; other typed
-/// prefixes use `IsChosenCardType`; a bare "spell of the chosen type" uses
-/// `IsChosenCreatureType` for creature-type-choice sources (Progenitor's Icon).
+/// CR 205.3m + CR 607.2d + CR 609.4 / CR 601.3b: Attach the chosen-type
+/// discriminator stripped from "the next [type] spell of the chosen type you
+/// cast this turn" grants (Progenitor's Icon). Mirrors
+/// `oracle_static::static_helpers` cost-mod pairing: a creature-typed prefix
+/// uses `IsChosenCreatureType`; other typed prefixes use `IsChosenCardType`; a
+/// bare "spell of the chosen type" uses `IsChosenCreatureType` for
+/// creature-type-choice sources (Progenitor's Icon).
 fn compose_chosen_type_next_spell_filter(
     type_prefix: Option<TargetFilter>,
     chosen_type_subject: bool,

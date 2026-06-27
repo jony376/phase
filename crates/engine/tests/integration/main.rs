@@ -384,6 +384,7 @@ mod issue_4272_birthing_ritual_etb_triggers;
 mod issue_4379_convoke_cancel_untap;
 mod issue_4420_lava_blister_unless_deal_damage;
 mod issue_4459_decoy_gambit_unless_have_you_draw;
+mod issue_haze_frog_other_creature_prevention;
 mod issue_536_six_grants_retrace;
 mod issue_541_endurance_graveyard_to_bottom;
 mod issue_544_krark_clan_ironworks_auto_pass;

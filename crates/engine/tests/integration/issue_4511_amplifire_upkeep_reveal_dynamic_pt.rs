@@ -9,8 +9,8 @@
 
 use engine::parser::oracle::parse_oracle_text;
 use engine::types::ability::{
-    ContinuousModification, Duration, Effect, PlayerScope, QuantityExpr, QuantityRef,
-    TargetFilter, TypeFilter,
+    ContinuousModification, Duration, Effect, PlayerScope, QuantityExpr, QuantityRef, TargetFilter,
+    TypeFilter,
 };
 use engine::types::triggers::TriggerMode;
 use engine::types::zones::Zone;
@@ -84,11 +84,14 @@ fn amplifire_upkeep_trigger_reveal_until_dynamic_base_pt() {
         "missing SetPowerDynamic(twice revealed power) in {mods:?}"
     );
     assert!(
-        mods.iter().any(|m| matches!(m, ContinuousModification::SetToughnessDynamic { .. })),
+        mods.iter()
+            .any(|m| matches!(m, ContinuousModification::SetToughnessDynamic { .. })),
         "missing SetToughnessDynamic in {mods:?}"
     );
     assert!(
-        !mods.iter().any(|m| matches!(m, ContinuousModification::SetPower { .. })),
+        !mods
+            .iter()
+            .any(|m| matches!(m, ContinuousModification::SetPower { .. })),
         "expected dynamic base power, got {mods:?}"
     );
 }

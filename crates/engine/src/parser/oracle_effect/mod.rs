@@ -50968,7 +50968,8 @@ mod tests {
             "missing SetPowerDynamic in {mods:?}"
         );
         assert!(
-            mods.iter().any(|m| matches!(m, ContinuousModification::SetToughnessDynamic { .. })),
+            mods.iter()
+                .any(|m| matches!(m, ContinuousModification::SetToughnessDynamic { .. })),
             "missing SetToughnessDynamic in {mods:?}"
         );
     }

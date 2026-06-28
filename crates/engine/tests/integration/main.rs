@@ -366,6 +366,7 @@ mod issue_3996_return_the_favor;
 mod issue_3997_sliver_gravemother_encore_legion;
 mod issue_3998_marang_river_prowler;
 mod issue_3999_latchkey_faerie_prowl_etb;
+mod issue_4511_amplifire_upkeep_reveal_dynamic_pt;
 mod issue_4000_dominating_licid;
 mod issue_4001_frolicking_familiar_adventure_instant;
 mod issue_4050_adamaro_extremum_hand_size;

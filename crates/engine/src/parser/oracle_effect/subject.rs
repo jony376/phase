@@ -587,7 +587,10 @@ enum BasePtSetValue {
 /// which routes through the shared CDA quantity grammar so every recognized
 /// count/aggregate/possessive-power phrase composes ("the number of Towns you
 /// control", "~'s power", …).
-fn parse_base_pt_set_value(remainder: &str) -> Option<(BasePtSetValue, &str)> {
+fn parse_base_pt_set_value(
+    remainder: &str,
+    ctx: &mut ParseContext,
+) -> Option<(BasePtSetValue, &str)> {
     if let Some((power, toughness, after_pt)) =
         super::animation::parse_fixed_become_pt_prefix(remainder)
     {
@@ -597,17 +600,58 @@ fn parse_base_pt_set_value(remainder: &str) -> Option<(BasePtSetValue, &str)> {
     // "equal to" are the two surface forms (each/each-not are not independent
     // axes here — the optional "each " is the only variation).
     let lower = remainder.to_lowercase();
-    // Return `()` (owned) from the closure so its result does not borrow the
-    // temporary `lower`; `nom_on_lower` hands back the post-match remainder in
-    // original case.
-    let (_, after_copula) = nom_on_lower(remainder, &lower, |i| {
+    if let Some((_, after_copula)) = nom_on_lower(remainder, &lower, |i| {
         let (i, _) = opt(tag::<_, _, OracleError<'_>>("each ")).parse(i)?;
         value((), tag::<_, _, OracleError<'_>>("equal to ")).parse(i)
-    })?;
-    let tail = after_copula.trim().trim_end_matches('.').trim();
-    let expr = oracle_quantity::parse_cda_quantity(tail)
+    }) {
+        let tail = after_copula.trim().trim_end_matches('.').trim();
+        let expr = oracle_quantity::parse_cda_quantity_with_context(tail, ctx)
+            .or_else(|| oracle_quantity::parse_event_context_quantity(tail))?;
+        return Some((BasePtSetValue::Dynamic(expr), ""));
+    }
+    // CR 208.1 + CR 608.2c: bare dynamic quantity after "become[s] " without
+    // the "equal to" copula — Amplifire's "twice that card's power".
+    let tail = remainder.trim().trim_end_matches('.').trim();
+    let expr = oracle_quantity::parse_cda_quantity_with_context(tail, ctx)
         .or_else(|| oracle_quantity::parse_event_context_quantity(tail))?;
     Some((BasePtSetValue::Dynamic(expr), ""))
+}
+
+/// CR 208.1: per-axis conjunct after a power-only base-P/T set — "… base power
+/// becomes X and its base toughness becomes Y" (Amplifire).
+fn split_base_pt_per_axis_conjunct(remainder: &str) -> (&str, Option<&str>) {
+    let lower = remainder.to_lowercase();
+    for marker in [
+        " and its base toughness become ",
+        " and its base toughness becomes ",
+        " and its base power become ",
+        " and its base power becomes ",
+    ] {
+        if let Some(idx) = lower.find(marker) {
+            return (&remainder[..idx], Some(&remainder[idx + 5..])); // skip " and "
+        }
+    }
+    (remainder, None)
+}
+
+fn parse_base_pt_per_axis_conjunct_value(
+    conjunct: &str,
+    ctx: &mut ParseContext,
+) -> Option<(BasePtSetAxes, BasePtSetValue)> {
+    type VE<'a> = OracleError<'a>;
+    let lower = conjunct.to_lowercase();
+    let (rest_lower, axes) = (
+        opt(tag::<_, _, VE>("its ")),
+        parse_base_pt_axes,
+        tag(" become"),
+        opt(tag("s")),
+        tag(" "),
+    )
+        .parse(lower.as_str())
+        .ok()?;
+    let rest_orig = &conjunct[conjunct.len() - rest_lower.len()..];
+    let (value, _) = parse_base_pt_set_value(rest_orig, ctx)?;
+    Some((axes, value))
 }
 
 /// CR 613.4b + CR 613.1f: "[subject]'s base power [and toughness] become[s]
@@ -700,7 +744,8 @@ fn try_parse_subject_base_pt_set_clause_ast(
     };
 
     // Parse the value side (fixed N/M or dynamic "[each] equal to <quantity>").
-    let (value, after_pt) = parse_base_pt_set_value(remainder)?;
+    let (value_remainder, per_axis_conjunct) = split_base_pt_per_axis_conjunct(remainder);
+    let (value, after_pt) = parse_base_pt_set_value(value_remainder, ctx)?;
 
     // Parse the optional trailing keyword-grant conjunct ("and they gain trample").
     let keywords = parse_base_pt_set_trailing_keywords(after_pt);
@@ -730,6 +775,32 @@ fn try_parse_subject_base_pt_set_clause_ast(
             }
             if axes.set_toughness {
                 modifications.push(ContinuousModification::SetToughnessDynamic { value: expr });
+            }
+        }
+    }
+    if let Some(conjunct) = per_axis_conjunct {
+        if let Some((conjunct_axes, conjunct_value)) =
+            parse_base_pt_per_axis_conjunct_value(conjunct, ctx)
+        {
+            match conjunct_value {
+                BasePtSetValue::Fixed { power, toughness } => {
+                    if conjunct_axes.set_power {
+                        modifications.push(ContinuousModification::SetPower { value: power });
+                    }
+                    if conjunct_axes.set_toughness {
+                        modifications.push(ContinuousModification::SetToughness { value: toughness });
+                    }
+                }
+                BasePtSetValue::Dynamic(expr) => {
+                    if conjunct_axes.set_power {
+                        modifications.push(ContinuousModification::SetPowerDynamic {
+                            value: expr.clone(),
+                        });
+                    }
+                    if conjunct_axes.set_toughness {
+                        modifications.push(ContinuousModification::SetToughnessDynamic { value: expr });
+                    }
+                }
             }
         }
     }
@@ -6810,6 +6881,53 @@ mod tests {
         assert!(!mods
             .iter()
             .any(|m| matches!(m, ContinuousModification::AddKeyword { .. })));
+    }
+
+    /// CR 208.1 + CR 608.2c + CR 611.2a: Amplifire — bare "twice that card's
+    /// power" without an "equal to" copula, per-axis conjunct for toughness, and
+    /// leading "Until your next turn" duration.
+    #[test]
+    fn base_pt_set_clause_bare_twice_revealed_card_with_conjunct_toughness() {
+        use crate::types::ability::{Duration, PlayerScope, QuantityExpr, QuantityRef};
+        let (mods, duration) = base_pt_set_mods(
+            "Until your next turn, this creature's base power becomes twice that card's power and its base toughness becomes twice that card's toughness",
+        );
+        let twice_power = QuantityExpr::Multiply {
+            factor: 2,
+            inner: Box::new(QuantityExpr::Ref {
+                qty: QuantityRef::Power {
+                    scope: crate::types::ability::ObjectScope::Demonstrative,
+                },
+            }),
+        };
+        let twice_toughness = QuantityExpr::Multiply {
+            factor: 2,
+            inner: Box::new(QuantityExpr::Ref {
+                qty: QuantityRef::Toughness {
+                    scope: crate::types::ability::ObjectScope::Demonstrative,
+                },
+            }),
+        };
+        assert!(
+            mods.iter().any(|m| matches!(
+                m,
+                ContinuousModification::SetPowerDynamic { value } if *value == twice_power
+            )),
+            "missing SetPowerDynamic(twice revealed power) in {mods:?}"
+        );
+        assert!(
+            mods.iter().any(|m| matches!(
+                m,
+                ContinuousModification::SetToughnessDynamic { value } if *value == twice_toughness
+            )),
+            "missing SetToughnessDynamic(twice revealed toughness) in {mods:?}"
+        );
+        assert_eq!(
+            duration,
+            Some(Duration::UntilNextTurnOf {
+                player: PlayerScope::Controller,
+            })
+        );
     }
 
     // -----------------------------------------------------------------------

@@ -50906,6 +50906,73 @@ mod tests {
         );
     }
 
+    /// CR 701.20a + CR 611.2a + CR 613.4b: Amplifire upkeep chain — RevealUntil
+    /// (creature), UntilYourNextTurn SetPowerDynamic/SetToughnessDynamic from the
+    /// revealed card, then PutRest on the revealed pile.
+    #[test]
+    fn amplifire_upkeep_reveal_until_dynamic_base_pt_chain() {
+        use crate::types::ability::{
+            ContinuousModification, Duration, PlayerScope, QuantityExpr, QuantityRef,
+        };
+        let def = parse_effect_chain(
+            "Reveal cards from the top of your library until you reveal a creature card. \
+             Until your next turn, this creature's base power becomes twice that card's power \
+             and its base toughness becomes twice that card's toughness. \
+             Put the revealed cards on the bottom of your library in a random order.",
+            AbilityKind::Triggered,
+        );
+        let Effect::RevealUntil {
+            filter,
+            rest_destination,
+            ..
+        } = &*def.effect
+        else {
+            panic!("expected RevealUntil root, got {:?}", def.effect);
+        };
+        let TargetFilter::Typed(tf) = filter else {
+            panic!("expected creature filter, got {filter:?}");
+        };
+        assert!(tf.type_filters.contains(&TypeFilter::Creature));
+        assert_eq!(*rest_destination, Zone::Library);
+
+        let layer = def
+            .sub_ability
+            .as_ref()
+            .expect("RevealUntil should chain to layer effect");
+        assert_eq!(
+            layer.duration,
+            Some(Duration::UntilNextTurnOf {
+                player: PlayerScope::Controller,
+            })
+        );
+        let Effect::GenericEffect {
+            static_abilities, ..
+        } = &*layer.effect
+        else {
+            panic!("expected GenericEffect layer, got {:?}", layer.effect);
+        };
+        let mods = &static_abilities[0].modifications;
+        let twice_power = QuantityExpr::Multiply {
+            factor: 2,
+            inner: Box::new(QuantityExpr::Ref {
+                qty: QuantityRef::Power {
+                    scope: crate::types::ability::ObjectScope::Demonstrative,
+                },
+            }),
+        };
+        assert!(
+            mods.iter().any(|m| matches!(
+                m,
+                ContinuousModification::SetPowerDynamic { value } if *value == twice_power
+            )),
+            "missing SetPowerDynamic in {mods:?}"
+        );
+        assert!(
+            mods.iter().any(|m| matches!(m, ContinuousModification::SetToughnessDynamic { .. })),
+            "missing SetToughnessDynamic in {mods:?}"
+        );
+    }
+
     /// CR 701.20a + CR 608.2c: "reveal until you reveal X permanent cards, where
     /// X is the number of colors among permanents you control. Put any number of
     /// those permanent cards onto the battlefield, then put the rest of the

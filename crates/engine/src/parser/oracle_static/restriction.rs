@@ -2622,7 +2622,7 @@ pub(crate) fn try_parse_ignore_effect_escape_line(
     let after_exile_lower = after_exile.to_lowercase();
     let ((count, filter), _) = nom_on_lower(after_exile, &after_exile_lower, |i| {
         let (i, count) = preceded(space0, nom_primitives::parse_number).parse(i)?;
-        let (i, _) = alt((tag("cards "), tag("card "))).parse(i)?;
+        let (i, _) = preceded(space0, alt((tag("cards "), tag("card ")))).parse(i)?;
         let (i, filter) = alt((
             value(TargetFilter::Controller, tag("from your graveyard")),
             value(

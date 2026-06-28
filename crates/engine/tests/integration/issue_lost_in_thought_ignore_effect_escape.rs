@@ -1,7 +1,8 @@
 //! Lost in Thought — ignore-effect escape via exile-three-from-graveyard.
 
 use engine::game::combat::AttackTarget;
-use engine::game::effects::attach::attach_to;
+use engine::game::game_object::AttachTarget;
+use engine::game::layers::evaluate_layers;
 use engine::game::scenario::{GameScenario, P0, P1};
 
 use engine::types::ability::{Effect, GameRestriction};
@@ -42,19 +43,23 @@ fn lost_in_thought_escape_lets_enchanted_creature_attack_until_next_turn() {
     let lit = scenario
         .add_creature(P0, "Lost in Thought", 0, 0)
         .as_enchantment()
+        .with_subtypes(vec!["Aura".to_string()])
         .from_oracle_text(LOST_IN_THOUGHT)
         .id();
     let bear = scenario.add_creature(P0, "Grizzly Bears", 2, 2).id();
 
     let mut runner = scenario.build();
     {
-        let lit_obj = runner.state_mut().objects.get_mut(&lit).unwrap();
+        let state = runner.state_mut();
+        let lit_obj = state.objects.get_mut(&lit).unwrap();
         if !lit_obj.card_types.subtypes.iter().any(|s| s == "Aura") {
             lit_obj.card_types.subtypes.push("Aura".to_string());
             lit_obj.base_card_types = lit_obj.card_types.clone();
         }
+        lit_obj.attached_to = Some(AttachTarget::Object(bear));
+        state.objects.get_mut(&bear).unwrap().attachments.push(lit);
     }
-    assert!(attach_to(runner.state_mut(), lit, bear).is_some());
+    evaluate_layers(runner.state_mut());
 
     runner.advance_to_combat();
     let err = runner

@@ -2591,16 +2591,13 @@ pub(crate) fn try_parse_ignore_effect_escape_line(
         TargetFilter::ParentTargetController
     };
 
-    let (exile_tail, ignore_tail) = super::oracle_nom::bridge::split_once_on_lower(
-        cost_tail,
-        &cost_lower,
-        " rather than pay ",
-    )
-    .map(|(exile, ignore)| (exile.trim(), ignore.trim()))
-    .or_else(|| {
-        super::oracle_nom::bridge::split_once_on_lower(cost_tail, &cost_lower, " as though ")
-            .map(|(exile, _)| (exile.trim(), ""))
-    })?;
+    let (exile_tail, ignore_tail) =
+        super::oracle_nom::bridge::split_once_on_lower(cost_tail, &cost_lower, " rather than pay ")
+            .map(|(exile, ignore)| (exile.trim(), ignore.trim()))
+            .or_else(|| {
+                super::oracle_nom::bridge::split_once_on_lower(cost_tail, &cost_lower, " as though ")
+                    .map(|(exile, _)| (exile.trim(), ""))
+            })?;
 
     if !ignore_tail.is_empty() {
         let ignore_lower = ignore_tail.to_lowercase();
@@ -2613,14 +2610,14 @@ pub(crate) fn try_parse_ignore_effect_escape_line(
     }
 
     let exile_lower = exile_tail.to_lowercase();
-    let (_, _, after_exile) = nom_primitives::scan_preceded(&exile_lower, |i| {
+    let (_, _, after_exile_lower) = nom_primitives::scan_preceded(&exile_lower, |i| {
         tag::<_, _, VE>("exile ").parse(i)
     })?;
-    let consumed = exile_lower.len() - after_exile.len();
+    let consumed = exile_lower.len() - after_exile_lower.len();
     let after_exile = exile_tail[consumed..].trim_start();
 
     let after_exile_lower = after_exile.to_lowercase();
-    let (count, filter) = nom_on_lower(after_exile, &after_exile_lower, |i| {
+    let ((count, filter), _) = nom_on_lower(after_exile, &after_exile_lower, |i| {
         let (i, count) = preceded(space0, nom_primitives::parse_number).parse(i)?;
         let (i, _) = alt((tag("cards "), tag("card "))).parse(i)?;
         let (i, filter) = alt((

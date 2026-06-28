@@ -734,6 +734,17 @@ pub fn check_static_ability(
             }
         }
 
+        let affected_player = context
+            .target_id
+            .and_then(|id| state.objects.get(&id))
+            .map(|o| o.controller)
+            .or(context.player_id);
+        if let Some(p) = affected_player {
+            if crate::game::restrictions::static_source_ignored_for_player(state, obj.id, p) {
+                continue;
+            }
+        }
+
         return true;
     }
 

@@ -1859,6 +1859,14 @@ pub enum GameRestriction {
         expiry: RestrictionExpiry,
         activity: ProhibitedActivity,
     },
+    /// CR 611.2b: A player paid the ignore-effect escape cost on a continuous
+    /// restriction source; that source's static abilities are suppressed for
+    /// that player until expiry ("as though ~ were not on the battlefield").
+    StaticSourceIgnored {
+        source: ObjectId,
+        for_player: PlayerId,
+        expiry: RestrictionExpiry,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -7194,6 +7202,28 @@ pub enum SpellCastingOptionKind {
     AsThoughHadFlash,
     /// CR 715.3a: Cast the Adventure half of an Adventure card.
     CastAdventure,
+}
+
+// ---------------------------------------------------------------------------
+// IgnoreEffectEscape — pay to treat a continuous restriction source as absent
+// ---------------------------------------------------------------------------
+
+/// CR 118.9 + CR 611.2b: Optional cost a player may pay so a continuous
+/// restriction from a source (Lost in Thought, Leonin Arbiter, Volrath's Curse)
+/// does not apply until the stated expiration.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct IgnoreEffectEscape {
+    pub cost: AbilityCost,
+    pub payer: TargetFilter,
+    pub expiration: IgnoreEffectExpiration,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum IgnoreEffectExpiration {
+    UntilEndOfTurn,
+    UntilNextTurnOf {
+        player: PlayerScope,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -15969,6 +15999,10 @@ pub struct StaticDefinition {
     /// uses the same axis). `None` means the creature cannot attack at all.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub attack_defended: Option<crate::types::triggers::AttackTargetFilter>,
+    /// CR 118.9: Optional escape cost that lets the payer ignore this static's
+    /// source until `expiration` (Lost in Thought class).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ignore_effect_escape: Option<IgnoreEffectEscape>,
 }
 
 impl StaticDefinition {
@@ -15985,6 +16019,7 @@ impl StaticDefinition {
             characteristic_defining: false,
             description: None,
             attack_defended: None,
+            ignore_effect_escape: None,
         }
     }
 

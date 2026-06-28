@@ -16769,6 +16769,30 @@ fn cant_be_activated_compound_aura_mana_exemption_suffix() {
 }
 
 #[test]
+fn lost_in_thought_ignore_effect_escape_line_parses() {
+    use crate::parser::oracle_static::try_parse_ignore_effect_escape_line;
+    use crate::types::ability::{AbilityCost, IgnoreEffectExpiration, TargetFilter};
+
+    let escape = try_parse_ignore_effect_escape_line(
+        "Until your next turn, its controller may exile three cards from their graveyard as though ~ were not on the battlefield.",
+    )
+    .expect("Lost in Thought escape line should parse");
+    assert_eq!(escape.payer, TargetFilter::ParentTargetController);
+    assert!(matches!(
+        escape.expiration,
+        IgnoreEffectExpiration::UntilNextTurnOf { .. }
+    ));
+    assert!(matches!(
+        escape.cost,
+        AbilityCost::Exile {
+            count: crate::types::ability::QuantityExpr::Fixed { value: 3 },
+            zone: Some(Zone::Graveyard),
+            ..
+        }
+    ));
+}
+
+#[test]
 fn cant_be_activated_compound_aura_with_cant_crew() {
     let defs = parse_static_line_multi(
         "Enchanted permanent can't attack, block, crew Vehicles, or have its activated abilities activated.",

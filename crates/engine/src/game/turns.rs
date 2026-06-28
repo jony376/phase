@@ -832,6 +832,9 @@ pub fn execute_untap_with_choices(
                 !matches!(expiry, RestrictionExpiry::UntilPlayerNextTurn { player } if *player == active)
             }
             GameRestriction::DamagePreventionDisabled { .. } => true,
+            GameRestriction::StaticSourceIgnored { expiry, .. } => {
+                !matches!(expiry, RestrictionExpiry::UntilPlayerNextTurn { player } if *player == active)
+            }
         }
     });
 
@@ -1530,7 +1533,8 @@ pub fn execute_cleanup(state: &mut GameState, events: &mut Vec<GameEvent>) -> Op
         use crate::types::ability::{GameRestriction, RestrictionExpiry};
         match r {
             GameRestriction::DamagePreventionDisabled { expiry, .. }
-            | GameRestriction::ProhibitActivity { expiry, .. } => {
+            | GameRestriction::ProhibitActivity { expiry, .. }
+            | GameRestriction::StaticSourceIgnored { expiry, .. } => {
                 !matches!(expiry, RestrictionExpiry::EndOfTurn)
             }
         }

@@ -385,6 +385,7 @@ mod issue_4272_birthing_ritual_etb_triggers;
 mod issue_4379_convoke_cancel_untap;
 mod issue_4384_airbend_stack_spell;
 mod issue_4420_lava_blister_unless_deal_damage;
+mod issue_lost_in_thought_ignore_effect_escape;
 mod issue_4459_decoy_gambit_unless_have_you_draw;
 mod issue_4503_incremental_growth;
 mod issue_536_six_grants_retrace;

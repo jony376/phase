@@ -18,6 +18,26 @@ use crate::types::SpellCastRecord;
 use super::engine::EngineError;
 use crate::types::identifiers::ObjectId;
 
+/// CR 611.2b: Whether `source_id`'s continuous static abilities are suppressed
+/// for `player` because that player paid an ignore-effect escape cost.
+pub(crate) fn static_source_ignored_for_player(
+    state: &crate::types::game_state::GameState,
+    source_id: ObjectId,
+    player: PlayerId,
+) -> bool {
+    use crate::types::ability::GameRestriction;
+    state.restrictions.iter().any(|restriction| {
+        matches!(
+            restriction,
+            GameRestriction::StaticSourceIgnored {
+                source,
+                for_player,
+                ..
+            } if *source == source_id && *for_player == player
+        )
+    })
+}
+
 /// CR 601.3: A player can begin to cast a spell only if a rule or effect allows that player
 /// to cast it and no rule or effect prohibits that player from casting it.
 pub fn check_spell_timing(

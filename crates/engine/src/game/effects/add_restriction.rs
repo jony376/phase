@@ -38,6 +38,19 @@ fn fill_runtime_fields(
         | GameRestriction::ProhibitActivity { source, .. } => {
             *source = ability.source_id;
         }
+        GameRestriction::StaticSourceIgnored {
+            source,
+            for_player,
+            expiry,
+        } => {
+            *source = ability.source_id;
+            *for_player = ability.controller;
+            if matches!(expiry, RestrictionExpiry::UntilPlayerNextTurn { .. }) {
+                *expiry = RestrictionExpiry::UntilPlayerNextTurn {
+                    player: ability.controller,
+                };
+            }
+        }
     }
 
     let resolved_target_player = ability.target_player();
@@ -87,6 +100,7 @@ fn fill_runtime_fields(
             }
         }
         GameRestriction::DamagePreventionDisabled { .. } => {}
+        GameRestriction::StaticSourceIgnored { .. } => {}
     }
 
     match restriction {
@@ -137,6 +151,7 @@ fn fill_runtime_fields(
             }
         }
         GameRestriction::DamagePreventionDisabled { .. } => {}
+        GameRestriction::StaticSourceIgnored { .. } => {}
     }
 }
 

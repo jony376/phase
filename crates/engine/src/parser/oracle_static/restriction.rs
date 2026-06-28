@@ -2553,6 +2553,105 @@ pub(crate) fn try_parse_cast_free_permission(text: &str, lower: &str) -> Option<
     )
 }
 
+/// CR 118.9 + CR 611.2b: Parse the ignore-effect escape tail on restriction
+/// auras (Lost in Thought, Volrath's Curse) and player-scoped statics
+/// (Leonin Arbiter).
+pub(crate) fn try_parse_ignore_effect_escape_line(
+    text: &str,
+) -> Option<crate::types::ability::IgnoreEffectEscape> {
+    use crate::types::ability::{
+        IgnoreEffectEscape, IgnoreEffectExpiration, PlayerScope, QuantityExpr,
+    };
+    type VE<'a> = OracleError<'a>;
+    let tp = TextPair::new(text, &text.to_lowercase());
+    let lower = tp.lower;
+
+    let (cost_tail, expiration) = if let Some(rest) = nom_tag_tp(&tp, "until your next turn, ") {
+        (
+            rest.original.trim(),
+            IgnoreEffectExpiration::UntilNextTurnOf {
+                player: PlayerScope::ParentTargetController,
+            },
+        )
+    } else if let Some(rest) = nom_tag_tp(&tp, "until your next turn ") {
+        (
+            rest.original.trim(),
+            IgnoreEffectExpiration::UntilNextTurnOf {
+                player: PlayerScope::ParentTargetController,
+            },
+        )
+    } else {
+        (
+            text.trim(),
+            IgnoreEffectExpiration::UntilEndOfTurn,
+        )
+    };
+
+    let cost_lower = cost_tail.to_lowercase();
+    let payer = if nom_primitives::scan_contains(&cost_lower, "any player may pay") {
+        TargetFilter::Player
+    } else if nom_primitives::scan_contains(&cost_lower, "that player may pay") {
+        TargetFilter::ScopedPlayer
+    } else {
+        TargetFilter::ParentTargetController
+    };
+
+    let (exile_tail, ignore_tail) = if let Some(idx) = cost_lower.find(" rather than pay ") {
+        (
+            &cost_tail[..idx],
+            cost_tail[idx + " rather than pay ".len()..].trim(),
+        )
+    } else if let Some(idx) = cost_lower.find(" as though ") {
+        (&cost_tail[..idx], "")
+    } else {
+        return None;
+    };
+
+    if !ignore_tail.is_empty() {
+        let ignore_lower = ignore_tail.to_lowercase();
+        let recognized = nom_primitives::scan_contains(&ignore_lower, "ignore this effect until end of turn")
+            || nom_primitives::scan_contains(&ignore_lower, "were not on the battlefield");
+        if !recognized {
+            return None;
+        }
+    }
+
+    let exile_lower = exile_tail.to_lowercase();
+    if let Some(((), after_exile)) =
+        nom_on_lower(exile_tail, &exile_lower, |i: &str| tag::<_, _, VE>("exile ").parse(i))
+    {
+        let after_exile_lower = after_exile.to_lowercase();
+        let (count, after_count) = parse_number(after_exile_lower.trim())?;
+        let mut rest = after_count.trim();
+        rest = rest
+            .strip_prefix("cards ")
+            .or_else(|| rest.strip_prefix("card "))?;
+        rest = rest
+            .strip_prefix("from their graveyard")
+            .or_else(|| rest.strip_prefix("from your graveyard"))
+            .or_else(|| rest.strip_prefix("from a graveyard"))?;
+        if !rest.trim().trim_end_matches('.').is_empty() {
+            return None;
+        }
+        let filter = if nom_primitives::scan_contains(&after_exile_lower, "from your graveyard") {
+            TargetFilter::Controller
+        } else {
+            TargetFilter::ParentTargetController
+        };
+        return Some(IgnoreEffectEscape {
+            cost: AbilityCost::Exile {
+                count: QuantityExpr::Fixed { value: count as i32 },
+                zone: Some(Zone::Graveyard),
+                filter: Some(filter),
+            },
+            payer,
+            expiration,
+        });
+    }
+
+    None
+}
+
 #[cfg(test)]
 mod filtered_spend_any_type_tests {
     use super::*;

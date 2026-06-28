@@ -13874,6 +13874,9 @@ pub(super) fn is_blocked_by_cant_be_activated(
     // CR 702.26b + CR 604.1: Functioning gate owned by `battlefield_active_statics`.
     for (bf_obj, def) in super::functioning_abilities::battlefield_active_statics(state) {
         let bf_id = bf_obj.id;
+        if super::restrictions::static_source_ignored_for_player(state, bf_id, caster) {
+            continue;
+        }
         let StaticMode::CantBeActivated {
             ref who,
             ref source_filter,

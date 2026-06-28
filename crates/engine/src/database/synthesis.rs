@@ -9203,6 +9203,62 @@ pub fn synthesize_all(face: &mut CardFace) {
     // CR 905.4 / CR 113.6b: stamp Zone::Command onto conspiracy triggers and
     // statics so the command-zone scans evaluate them.
     synthesize_conspiracy(face);
+    synthesize_ignore_effect_escape(face);
+}
+
+/// CR 118.9 + CR 611.2b: Synthesize an activated ability from
+/// `StaticDefinition::ignore_effect_escape` so the payer can suppress the
+/// source's continuous restrictions until expiration.
+pub fn synthesize_ignore_effect_escape(face: &mut CardFace) {
+    use crate::types::ability::{
+        AbilityDefinition, AbilityKind, Effect, GameRestriction, IgnoreEffectExpiration,
+        RestrictionExpiry,
+    };
+    use crate::types::identifiers::ObjectId;
+    use crate::types::player::PlayerId;
+
+    let Some(escape) = face
+        .static_abilities
+        .iter()
+        .find_map(|def| def.ignore_effect_escape.as_ref())
+        .cloned()
+    else {
+        return;
+    };
+
+    let already_has = face.abilities.iter().any(|ability| {
+        matches!(
+            ability.effect.as_ref(),
+            Effect::AddRestriction {
+                restriction: GameRestriction::StaticSourceIgnored { .. },
+            }
+        )
+    });
+    if already_has {
+        return;
+    }
+
+    let expiry = match escape.expiration {
+        IgnoreEffectExpiration::UntilEndOfTurn => RestrictionExpiry::EndOfTurn,
+        IgnoreEffectExpiration::UntilNextTurnOf { .. } => RestrictionExpiry::UntilPlayerNextTurn {
+            player: PlayerId(0),
+        },
+    };
+
+    face.abilities.push(
+        AbilityDefinition::new(
+            AbilityKind::Activated,
+            Effect::AddRestriction {
+                restriction: GameRestriction::StaticSourceIgnored {
+                    source: ObjectId(0),
+                    for_player: PlayerId(0),
+                    expiry,
+                },
+            },
+        )
+        .cost(escape.cost)
+        .description("Ignore this effect".to_string()),
+    );
 }
 
 /// CR 702.176a: Synthesize Impending's battlefield static and end-step trigger.

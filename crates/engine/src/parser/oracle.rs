@@ -84,7 +84,8 @@ use super::oracle_static::{
     parse_collect_evidence_alt_cost, parse_every_creature_type_static_prefix,
     parse_flashback_trailing_self_spell_cost_reduction, parse_spells_alternative_cost,
     parse_static_line, parse_static_line_multi, try_parse_graveyard_keyword_grant_clause,
-    try_parse_graveyard_keyword_grant_static, GraveyardGrantedKeywordKind,
+    try_parse_graveyard_keyword_grant_static, try_parse_ignore_effect_escape_line,
+    GraveyardGrantedKeywordKind,
 };
 use super::oracle_trigger::{lower_trigger_ir, parse_trigger_lines_at_index};
 use super::oracle_util::{
@@ -2467,6 +2468,25 @@ pub(crate) fn parse_oracle_ir(
         // Priority 11: Planeswalker loyalty abilities: +N:, −N:, 0:, [+N]:, [−N]:, [0]:
         if let Some(ability) = try_parse_loyalty_line(&line, &mut ctx) {
             result.abilities.push(ability);
+            i += 1;
+            continue;
+        }
+
+        if let Some(escape) = try_parse_ignore_effect_escape_line(&static_line) {
+            use crate::types::statics::StaticMode;
+            for static_def in &mut result.statics {
+                let is_restriction = matches!(
+                    static_def.mode,
+                    StaticMode::CantAttack
+                        | StaticMode::CantBlock
+                        | StaticMode::CantAttackOrBlock
+                        | StaticMode::CantBeActivated { .. }
+                        | StaticMode::CantSearchLibrary { .. }
+                );
+                if is_restriction {
+                    static_def.ignore_effect_escape = Some(escape.clone());
+                }
+            }
             i += 1;
             continue;
         }

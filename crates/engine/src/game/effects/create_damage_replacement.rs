@@ -234,6 +234,12 @@ pub fn resolve(
                 obj.replacement_definitions.push(shield);
             }
         } else {
+            // CR 109.4 + CR 614.1a: Anchor the installing controller so a
+            // controller-relative `damage_source_filter` (e.g. Desperate Gambit's
+            // chosen "source you control" recheck) matches under the sentinel host.
+            if shield.source_controller.is_none() {
+                shield.source_controller = Some(ability.controller);
+            }
             state.pending_damage_replacements.push(shield);
         }
     }

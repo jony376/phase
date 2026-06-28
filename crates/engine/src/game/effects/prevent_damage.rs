@@ -381,6 +381,11 @@ pub fn resolve(
         } else {
             // Source is on the Stack (instant/sorcery mid-resolution) or already left —
             // store in game-state-level registry so it persists until end of turn.
+            // CR 109.4 + CR 614.1a: Anchor the installing controller so a
+            // controller-relative `damage_source_filter` matches under the sentinel host.
+            if shield.source_controller.is_none() {
+                shield.source_controller = Some(ability.controller);
+            }
             state.pending_damage_replacements.push(shield);
         }
     }

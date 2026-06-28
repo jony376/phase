@@ -913,7 +913,6 @@ mod tests {
         );
     }
 
-
     /// CR 609.7a (Defect 2 negative): the chosen-source shield must NOT fire on a
     /// DIFFERENT source's damage.
     #[test]

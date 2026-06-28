@@ -1757,39 +1757,78 @@ pub(super) fn resolve_optional_effect_decision(
             }
         }
         AutoMayChoice::Decline => {
-            let decline_branch = ability.else_ability.as_ref().or_else(|| {
-                ability.sub_ability.as_ref().filter(|sub| {
-                    // CR 608.2c: a conditioned decline branch (IfYouDo /
-                    // Otherwise / composite) resolves on decline — authoritative
-                    // check.
-                    should_resolve_subability_on_optional_decline(sub)
-                        // CR 608.2c: a separate-sentence sibling is the next
-                        // printed instruction and resolves regardless of the
-                        // optional decision — BUT only when it is not a
-                        // reflexive trigger. CR 603.12: a reflexive ("When you
-                        // do, …") sub's "do" did not occur when the action was
-                        // declined, so it must NOT fire even though it is a
-                        // separate sentence (issue #3179: Swashbuckler
-                        // Extraordinaire's declined Treasure sacrifice must not
-                        // resolve the double-strike reflexive). CastFromZone's
-                        // graveyard-exile rider is not a printed follow-up to
-                        // execute on decline; it is permission metadata consumed
-                        // only if the graveyard spell is actually cast.
-                        || (sub.sub_link == SubAbilityLink::SequentialSibling
-                            && !sub_ability_is_reflexive(sub)
-                            && !(matches!(&ability.effect, Effect::CastFromZone { .. })
-                                && (cast_from_zone::is_graveyard_exile_rider_subability(sub)
-                                    // CR 614.1c + CR 122.1: the enters-with-counter
-                                    // rider is permission metadata (Osteomancer
-                                    // Adept, The Tomb of Aclazotz), not a printed
-                                    // follow-up to execute on decline.
-                                    || cast_from_zone::is_enters_with_counter_rider_subability(
-                                        sub,
-                                    ))))
-                })
+            let decline_branch = ability.else_ability.as_deref().or_else(|| {
+                let sub = ability.sub_ability.as_deref()?;
+                // CR 608.2c: a conditioned decline branch (IfYouDo /
+                // Otherwise / composite) resolves on decline — authoritative
+                // check.
+                let selected = should_resolve_subability_on_optional_decline(sub)
+                    // CR 608.2c: a separate-sentence sibling is the next
+                    // printed instruction and resolves regardless of the
+                    // optional decision — BUT only when it is not a
+                    // reflexive trigger. CR 603.12: a reflexive ("When you
+                    // do, …") sub's "do" did not occur when the action was
+                    // declined, so it must NOT fire even though it is a
+                    // separate sentence (issue #3179: Swashbuckler
+                    // Extraordinaire's declined Treasure sacrifice must not
+                    // resolve the double-strike reflexive). CastFromZone's
+                    // graveyard-exile rider is not a printed follow-up to
+                    // execute on decline; it is permission metadata consumed
+                    // only if the graveyard spell is actually cast.
+                    || (sub.sub_link == SubAbilityLink::SequentialSibling
+                        && !sub_ability_is_reflexive(sub)
+                        && !(matches!(&ability.effect, Effect::CastFromZone { .. })
+                            && (cast_from_zone::is_graveyard_exile_rider_subability(sub)
+                                // CR 614.1c + CR 122.1: the enters-with-counter
+                                // rider is permission metadata (Osteomancer
+                                // Adept, The Tomb of Aclazotz), not a printed
+                                // follow-up to execute on decline.
+                                || cast_from_zone::is_enters_with_counter_rider_subability(sub))));
+                if !selected {
+                    return None;
+                }
+                // CR 608.2c: An `IfYouDo` head with no `else_ability` gates its
+                // ENTIRE accept body ("if you do, A and B") on the optional
+                // decision. On decline, run ONLY the trailing
+                // `Not(OptionalEffectPerformed)` clause ("if you don't, C") —
+                // never the accept-only instructions chained under the head
+                // (Omnath, Locus of All: declining the reveal must put the card
+                // in hand without adding mana). For every other selected shape
+                // (direct `Not` head, `else_ability` head whose condition-false
+                // path runs the else, composite `And`/`Or` head re-evaluated
+                // post-decline, or a `SequentialSibling`) the head itself is the
+                // branch to resolve.
+                if sub
+                    .condition
+                    .as_ref()
+                    .is_some_and(|c| c.is_optional_effect_performed())
+                    && sub.else_ability.is_none()
+                {
+                    Some(nested_optional_decline_clause(sub).unwrap_or(sub))
+                } else {
+                    Some(sub)
+                }
             });
             if let Some(branch) = decline_branch {
-                let mut resolved = branch.as_ref().clone();
+                let mut resolved = branch.clone();
+                // CR 608.2c: inherit the parent's resolved object targets ONLY
+                // when the decline clause's effect actually anaphors the parent
+                // target (`ParentTarget`) — e.g. Omnath, Locus of All's "if you
+                // don't, put IT into your hand", where the looked-at card is the
+                // parent's target. Mirrors the sub-ability target threading the
+                // condition-false descent applies in `resolve_ability_chain`,
+                // required here because an extracted nested decline clause is
+                // resolved directly rather than reached through that descent. The
+                // `effect_refs_parent_target` guard keeps a decline clause that
+                // carries its OWN target filter (e.g. a Chaos-Wand cleanup that
+                // returns `ExiledBySource` cards) from being clobbered with the
+                // parent's targets.
+                if resolved.targets.is_empty()
+                    && !ability.targets.is_empty()
+                    && effect_refs_parent_target(&resolved.effect)
+                {
+                    resolved.targets = ability.targets.clone();
+                }
                 resolved.context = ability.context.clone();
                 // CR 608.2c: This optional effect was DECLINED — the decline
                 // branch's `Not{IfYouDo}` / `IfYouDo` gate must evaluate
@@ -1952,6 +1991,33 @@ fn inject_last_revealed_targets(
         .collect()
 }
 
+/// CR 608.2c: Locate the `Not(OptionalEffectPerformed)` decline clause anywhere
+/// in an `IfYouDo` head's accept-body sub-chain. A parent optional ability has a
+/// single `sub_ability` link, so the accept body ("If you do, A and B") and the
+/// decline continuation ("If you don't, C") form one linked chain: when the
+/// accept body has two or more instructions, the decline clause C is nested
+/// BELOW them rather than as the head's direct child (Omnath, Locus of All:
+/// "If you do, add mana AND put it into hand. If you don't, put it into hand").
+/// Walking the chain finds C at any depth. Returning the precise decline node
+/// lets the resolver run ONLY it on decline — never the accept-only instructions
+/// gated by "if you do" (CR 608.2c: follow the instructions in the order
+/// written). For the single-instruction Springheart Nantuko shape (C is the
+/// direct child) this returns that same direct child. Locator helper.
+fn nested_optional_decline_clause(ability: &ResolvedAbility) -> Option<&ResolvedAbility> {
+    let mut current = ability.sub_ability.as_deref();
+    while let Some(node) = current {
+        if node
+            .condition
+            .as_ref()
+            .is_some_and(AbilityCondition::is_not_optional_effect_performed)
+        {
+            return Some(node);
+        }
+        current = node.sub_ability.as_deref();
+    }
+    None
+}
+
 fn should_resolve_subability_on_optional_decline(ability: &ResolvedAbility) -> bool {
     match ability.condition {
         Some(AbilityCondition::Not { ref condition })
@@ -1979,15 +2045,14 @@ fn should_resolve_subability_on_optional_decline(ability: &ResolvedAbility) -> b
         Some(AbilityCondition::EffectOutcome {
             signal: EffectOutcomeSignal::OptionalEffectPerformed,
         }) => {
+            // CR 608.2c: The `Not(OptionalEffectPerformed)` decline clause may be
+            // the head's direct child (single-instruction accept body —
+            // Springheart Nantuko) or a deeper descendant (multi-instruction
+            // accept body — Omnath, Locus of All). `nested_optional_decline_clause`
+            // walks the chain to find it at any depth.
             ability.else_ability.is_some()
                 || (ability.player_scope.is_none()
-                    && ability.sub_ability.as_ref().is_some_and(|s| {
-                        matches!(
-                            &s.condition,
-                            Some(AbilityCondition::Not { condition })
-                                if condition.is_optional_effect_performed()
-                        )
-                    }))
+                    && nested_optional_decline_clause(ability).is_some())
         }
         // CR 608.2c + CR 608.2d: A composite `And`/`Or` condition that contains
         // a performed-gate is a valid decline branch — declining the
@@ -6471,6 +6536,31 @@ fn resolve_chain_body(
                 return Ok(());
             }
 
+            // CR 608.2c + CR 400.7j: When the parent effect wrote the
+            // last-revealed set (a look/reveal/dig) but carries no targets of its
+            // own, the gated sub references that revealed object both in its
+            // condition ("if it has three or more colored mana symbols in its
+            // mana cost") and in its effect ("add three mana in any combination
+            // of its colors") — Omnath, Locus of All. CR 400.7j: an effect can
+            // find an object it moved to a public zone, so the deep add-mana sub
+            // still finds the revealed card after it is put into hand. Inject the
+            // revealed ids as the parent's targets so BOTH the condition
+            // evaluation and the performed-true sub-resolution (which inherits
+            // the parent's targets via the early continuation/sibling paths) bind
+            // to the revealed object.
+            let injected_parent;
+            let ability: &ResolvedAbility = if effect_writes_last_revealed_ids(&ability.effect)
+                && !state.last_revealed_ids.is_empty()
+                && ability.targets.is_empty()
+            {
+                let mut clone = ability.clone();
+                clone.targets = inject_last_revealed_targets(state, ability, sub.as_ref());
+                injected_parent = clone;
+                &injected_parent
+            } else {
+                ability
+            };
+
             let condition_met = evaluate_condition(condition, state, ability);
             if !condition_met {
                 // CR 608.2c: Execute else branch if present ("Otherwise, [effect]")
@@ -9618,6 +9708,150 @@ mod tests {
         assert_eq!(state.players[1].life, 18);
         // Controller drew a card
         assert_eq!(state.players[0].hand.len(), 1);
+    }
+
+    /// CR 608.2c: General building block for the Omnath, Locus of All decline
+    /// shape — "you may X. If you do, A and B. If you don't, put IT into hand."
+    /// The decline clause C is a `Not(OptionalEffectPerformed)` GRANDCHILD of the
+    /// `IfYouDo` head (the accept body A;B is a two-instruction chain, so C is
+    /// appended below them). On DECLINE only C must run; the accept-only
+    /// instructions A and B must NOT. C moves the PARENT'S target object to hand
+    /// via `ParentTarget` (exactly Omnath's "put it into your hand"), so this
+    /// fixture is discriminating for BOTH failure modes: a finder-only fix runs
+    /// the unconditioned B on decline (life changes), and a fix that resolves C
+    /// detached WITHOUT inheriting the parent's targets leaves `ParentTarget`
+    /// empty so the card never moves. Drives the real
+    /// `resolve_optional_effect_decision` routing function.
+    #[test]
+    fn optional_decline_runs_only_nested_decline_clause_not_accept_body() {
+        fn build_chain(card: ObjectId) -> ResolvedAbility {
+            // C: decline clause — move the parent's target object to hand, gated
+            // Not(IfYouDo). `ParentTarget` must resolve against the inherited
+            // parent target (the card), as Omnath's "if you don't, put it into
+            // your hand" does.
+            let decline = ResolvedAbility::new(
+                Effect::ChangeZone {
+                    origin: None,
+                    destination: Zone::Hand,
+                    target: TargetFilter::ParentTarget,
+                    owner_library: false,
+                    enter_transformed: false,
+                    enters_under: None,
+                    enter_tapped: crate::types::zones::EtbTapState::Unspecified,
+                    enters_attacking: false,
+                    up_to: false,
+                    enter_with_counters: vec![],
+                    face_down_profile: None,
+                },
+                vec![],
+                ObjectId(100),
+                PlayerId(0),
+            )
+            .condition(AbilityCondition::Not {
+                condition: Box::new(AbilityCondition::EffectOutcome {
+                    signal: EffectOutcomeSignal::OptionalEffectPerformed,
+                }),
+            });
+            // B: second accept-body instruction — unconditioned GainLife(+3).
+            let accept_b = ResolvedAbility::new(
+                Effect::GainLife {
+                    amount: QuantityExpr::Fixed { value: 3 },
+                    player: TargetFilter::Controller,
+                },
+                vec![],
+                ObjectId(100),
+                PlayerId(0),
+            )
+            .sub_ability(decline);
+            // A: IfYouDo head — GainLife(+2), gated OptionalEffectPerformed.
+            let accept_a = ResolvedAbility::new(
+                Effect::GainLife {
+                    amount: QuantityExpr::Fixed { value: 2 },
+                    player: TargetFilter::Controller,
+                },
+                vec![],
+                ObjectId(100),
+                PlayerId(0),
+            )
+            .condition(AbilityCondition::EffectOutcome {
+                signal: EffectOutcomeSignal::OptionalEffectPerformed,
+            })
+            .sub_ability(accept_b);
+            // Parent optional ability ("you may X") targeting the looked-at card;
+            // neutral GainLife(0) effect.
+            ResolvedAbility::new(
+                Effect::GainLife {
+                    amount: QuantityExpr::Fixed { value: 0 },
+                    player: TargetFilter::Controller,
+                },
+                vec![TargetRef::Object(card)],
+                ObjectId(100),
+                PlayerId(0),
+            )
+            .sub_ability(accept_a)
+        }
+
+        fn fresh_state() -> (GameState, ObjectId) {
+            let mut state = GameState::new_two_player(42);
+            let card = create_object(
+                &mut state,
+                CardId(1),
+                PlayerId(0),
+                "Card".to_string(),
+                Zone::Library,
+            );
+            (state, card)
+        }
+
+        // DECLINE: only C runs — the parent-target card moves to hand, life
+        // UNCHANGED (A and B skipped). Card-in-hand proves C resolved AND bound
+        // its `ParentTarget` to the inherited parent target; life-unchanged
+        // proves the accept-only instructions did not run.
+        {
+            let (mut state, card) = fresh_state();
+            let start_life = state.players[0].life;
+            let mut events = Vec::new();
+            resolve_optional_effect_decision(
+                &mut state,
+                build_chain(card),
+                AutoMayChoice::Decline,
+                &mut events,
+                0,
+            )
+            .expect("decline resolves");
+            assert!(
+                state.players[0].hand.contains(&card),
+                "decline runs C and binds ParentTarget (card moved to hand)"
+            );
+            assert_eq!(
+                state.players[0].life, start_life,
+                "decline must NOT run accept-only A/B (life unchanged)"
+            );
+        }
+
+        // ACCEPT: A and B run (life +5), C skipped (card stays in library).
+        {
+            let (mut state, card) = fresh_state();
+            let start_life = state.players[0].life;
+            let mut events = Vec::new();
+            resolve_optional_effect_decision(
+                &mut state,
+                build_chain(card),
+                AutoMayChoice::Accept,
+                &mut events,
+                0,
+            )
+            .expect("accept resolves");
+            assert_eq!(
+                state.players[0].life,
+                start_life + 5,
+                "accept runs A(+2) and B(+3)"
+            );
+            assert!(
+                !state.players[0].hand.contains(&card),
+                "accept skips decline clause C (card stays in library)"
+            );
+        }
     }
 
     #[test]
@@ -14644,6 +14878,92 @@ mod tests {
         assert_eq!(state.players[1].hand.len(), 3);
         assert_eq!(state.players[0].graveyard.len(), 3);
         assert_eq!(state.players[1].graveyard.len(), 1);
+    }
+
+    /// CR 608.2c + CR 118.12 + CR 701.9: Read the Runes — draw X, then for
+    /// each card drawn discard unless you sacrifice; declining the sacrifice
+    /// performs the discard.
+    #[test]
+    fn read_the_runes_declining_sacrifice_discards_per_card_drawn() {
+        use crate::game::engine::apply_as_current;
+        use crate::types::ability::AbilityKind;
+        use crate::types::actions::GameAction;
+
+        let mut state = GameState::new_two_player(42);
+        for i in 0..3 {
+            create_object(
+                &mut state,
+                CardId(300 + i),
+                PlayerId(0),
+                format!("Library {i}"),
+                Zone::Library,
+            );
+        }
+        for i in 0..2 {
+            create_object(
+                &mut state,
+                CardId(400 + i),
+                PlayerId(0),
+                format!("Hand Card {i}"),
+                Zone::Hand,
+            );
+        }
+        let source = create_object(
+            &mut state,
+            CardId(500),
+            PlayerId(0),
+            "Read the Runes".to_string(),
+            Zone::Stack,
+        );
+
+        let def = crate::parser::oracle_effect::parse_effect_chain(
+            "Draw X cards. For each card drawn this way, discard a card unless you sacrifice a permanent.",
+            AbilityKind::Spell,
+        );
+        let mut ability =
+            crate::game::ability_utils::build_resolved_from_def(&def, source, PlayerId(0));
+        ability.set_chosen_x_recursive(2);
+
+        let mut events = Vec::new();
+        resolve_ability_chain(&mut state, &ability, &mut events, 0).unwrap();
+
+        let mut unless_prompts = 0;
+        while matches!(
+            state.waiting_for,
+            WaitingFor::UnlessPayment {
+                player: PlayerId(0),
+                ..
+            }
+        ) {
+            unless_prompts += 1;
+            apply_as_current(&mut state, GameAction::PayUnlessCost { pay: false }).unwrap();
+            let discard_pick = match &state.waiting_for {
+                WaitingFor::DiscardChoice { cards, .. } => Some(cards[0]),
+                _ => None,
+            };
+            if let Some(pick) = discard_pick {
+                apply_as_current(&mut state, GameAction::SelectCards { cards: vec![pick] })
+                    .unwrap();
+            }
+        }
+
+        assert_eq!(
+            unless_prompts, 2,
+            "X=2 must produce two unless-sacrifice prompts"
+        );
+        assert_eq!(
+            state.players[0].hand.len(),
+            2,
+            "draw two then discard two must net the starting hand size"
+        );
+        assert_eq!(state.players[0].graveyard.len(), 2);
+        assert!(
+            !matches!(
+                state.waiting_for,
+                WaitingFor::UnlessPayment { .. } | WaitingFor::DiscardChoice { .. }
+            ),
+            "no extra unless/discard prompts after both iterations"
+        );
     }
 
     /// CR 608.2c — building-block discriminator for the per-player reveal-anaphora

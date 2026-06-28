@@ -9856,6 +9856,104 @@ fn static_parse_for_each_attached_to_self_kellan() {
     }
 }
 
+/// Helper: the dynamic-power `QuantityExpr` from a static line's first
+/// `AddDynamicPower` modification, plus whether `keyword` was granted.
+fn dyn_power_and_keyword(
+    line: &str,
+    keyword: &Keyword,
+) -> (crate::types::ability::QuantityExpr, bool) {
+    let def = parse_static_line(line).unwrap_or_else(|| panic!("static must parse: {line}"));
+    assert_eq!(def.mode, StaticMode::Continuous);
+    let power = def
+        .modifications
+        .iter()
+        .find_map(|m| match m {
+            ContinuousModification::AddDynamicPower { value } => Some(value.clone()),
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("expected AddDynamicPower in: {line}"));
+    let has_kw = def
+        .modifications
+        .iter()
+        .any(|m| matches!(m, ContinuousModification::AddKeyword { keyword: k } if k == keyword));
+    (power, has_kw)
+}
+
+#[test]
+fn static_gets_for_each_survives_leading_keyword_clause() {
+    // Issue #4364 (Glamdring): "Equipped creature has first strike and gets
+    // +1/+0 for each instant and sorcery card in your graveyard." The leading
+    // "has first strike and" used to strand the "gets +N/+M" verb (the P/T
+    // extractor only stripped "gets " at the head of the clause), collapsing the
+    // dynamic boost to a flat +1/+0. The verb is now located at any word
+    // boundary, so BOTH the dynamic P/T and the leading keyword survive.
+    let assert_graveyard_is = |power: &crate::types::ability::QuantityExpr| match power {
+        QuantityExpr::Ref {
+            qty:
+                QuantityRef::ZoneCardCount {
+                    zone,
+                    card_types,
+                    scope,
+                    ..
+                },
+        } => {
+            assert_eq!(*zone, ZoneRef::Graveyard);
+            assert_eq!(*scope, CountScope::Controller);
+            assert!(
+                card_types.contains(&TypeFilter::Instant)
+                    && card_types.contains(&TypeFilter::Sorcery),
+                "expected instant+sorcery card types, got {card_types:?}"
+            );
+        }
+        other => panic!("expected ZoneCardCount Ref, got {other:?}"),
+    };
+
+    // Keyword-first (the bug witness) and the reordered control must agree.
+    let (kw_first, has_fs1) = dyn_power_and_keyword(
+        "Equipped creature has first strike and gets +1/+0 for each instant and sorcery card in your graveyard.",
+        &Keyword::FirstStrike,
+    );
+    let (gets_first, has_fs2) = dyn_power_and_keyword(
+        "Equipped creature gets +1/+0 for each instant and sorcery card in your graveyard and has first strike.",
+        &Keyword::FirstStrike,
+    );
+    assert_graveyard_is(&kw_first);
+    assert_graveyard_is(&gets_first);
+    assert!(
+        has_fs1,
+        "leading-keyword form must still grant first strike"
+    );
+    assert!(
+        has_fs2,
+        "trailing-keyword form must still grant first strike"
+    );
+    assert_eq!(
+        kw_first, gets_first,
+        "clause order must not change the boost"
+    );
+}
+
+#[test]
+fn static_gets_for_each_leading_keyword_class_generic() {
+    // Build-the-class check: "has <keyword> and gets +N/+M for each <filter>"
+    // must work for any keyword/filter, not just Glamdring.
+    let (power, has_trample) = dyn_power_and_keyword(
+        "Equipped creature has trample and gets +2/+2 for each Mountain you control.",
+        &Keyword::Trample,
+    );
+    assert!(has_trample, "leading keyword (trample) must survive");
+    assert!(
+        matches!(
+            power,
+            QuantityExpr::Multiply { factor: 2, .. }
+                | QuantityExpr::Ref {
+                    qty: QuantityRef::ObjectCount { .. }
+                }
+        ),
+        "expected a per-Mountain dynamic boost, got {power:?}"
+    );
+}
+
 #[test]
 fn static_parse_for_each_clause_other_creature() {
     // Verify parse_for_each_clause handles "other creature you control"
@@ -11008,7 +11106,7 @@ fn static_for_each_mana_symbol_in_its_mana_cost_emits_recipient_symbol_count() {
         &QuantityExpr::Ref {
             qty: QuantityRef::ManaSymbolsInManaCost {
                 scope: ObjectScope::Recipient,
-                color: ManaColor::White,
+                color: Some(ManaColor::White),
             },
         }
     );
@@ -11018,7 +11116,7 @@ fn static_for_each_mana_symbol_in_its_mana_cost_emits_recipient_symbol_count() {
             value: QuantityExpr::Ref {
                 qty: QuantityRef::ManaSymbolsInManaCost {
                     scope: ObjectScope::Recipient,
-                    color: ManaColor::White,
+                    color: Some(ManaColor::White),
                 }
             }
         }
@@ -16593,8 +16691,18 @@ fn cant_be_activated_self_ref_mana_exemption_suffix() {
 #[test]
 fn cant_be_activated_compound_aura_mana_exemption_suffix() {
     let defs = parse_static_line_multi(
-            "Enchanted permanent can't attack or block, and its activated abilities can't be activated unless they're mana abilities.",
-        );
+        "Enchanted permanent can't attack or block, and its activated abilities can't be activated unless they're mana abilities.",
+    );
+    let expected_affected =
+        TargetFilter::Typed(TypedFilter::permanent().properties(vec![FilterProp::EnchantedBy]));
+    let cant_attack_or_block = defs
+        .iter()
+        .find(|def| def.mode == StaticMode::CantAttackOrBlock)
+        .expect("compound Aura text should emit CantAttackOrBlock");
+    assert_eq!(
+        cant_attack_or_block.affected,
+        Some(expected_affected.clone())
+    );
     let cant_be_activated = defs
         .iter()
         .find(|def| matches!(def.mode, StaticMode::CantBeActivated { .. }))
@@ -16606,7 +16714,8 @@ fn cant_be_activated_compound_aura_mana_exemption_suffix() {
             exemption,
         } => {
             assert_eq!(*who, ProhibitionScope::AllPlayers);
-            assert_eq!(source_filter, &TargetFilter::SelfRef);
+            assert_eq!(source_filter, &expected_affected);
+            assert_eq!(cant_be_activated.affected, Some(expected_affected));
             assert_eq!(*exemption, ActivationExemption::ManaAbilities);
         }
         other => panic!("expected CantBeActivated, got {other:?}"),

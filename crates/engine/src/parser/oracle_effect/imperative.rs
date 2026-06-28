@@ -654,6 +654,28 @@ pub(super) fn parse_numeric_imperative_ast(
         if let Some(count) = parse_dynamic_count_phrase(rest_lower.as_str()) {
             return Some(NumericImperativeAst::Draw { count, up_to });
         }
+        // CR 121.1: Bare plural "draw cards" / "draw card" with no quantifier is
+        // only produced as an aggregate/for-each head after the dynamic count tail
+        // ("... equal to the number of <X> votes" / "... for each <X> vote") has
+        // already been stripped by the vote parser. With the dynamic tail removed
+        // the residue carries no quantity, so a Fixed{1} placeholder cannot hide a
+        // dynamic-quantity gap (the coverage concern guarded just below): the vote
+        // aggregate binder immediately rebinds this slot to QuantityRef::VoteCount.
+        // "draw a card" / "draw N cards" are unaffected — they reach
+        // parse_count_expr with a parseable count; only a bare "card" / "cards"
+        // remainder (nothing else) trips this arm.
+        if all_consuming(value(
+            (),
+            alt((tag::<_, _, OracleError<'_>>("cards"), tag("card"))),
+        ))
+        .parse(rest.trim().trim_end_matches('.'))
+        .is_ok()
+        {
+            return Some(NumericImperativeAst::Draw {
+                count: QuantityExpr::Fixed { value: 1 },
+                up_to,
+            });
+        }
         // CR 121.1: When the verb committed but the quantity phrase
         // can't be classified, return None so the line surfaces as
         // `Effect::Unimplemented` upstream. Silently substituting Fixed{1} hides
@@ -4545,7 +4567,8 @@ fn parse_prevent_effect(text: &str) -> Effect {
         TargetFilter::Any
     };
 
-    let damage_source_filter = parse_prevent_damage_source_filter(text, &lower);
+    let damage_source_filter = parse_prevent_damage_source_filter(text, &lower)
+        .or_else(|| parse_prevent_that_would_deal_source_filter(text, &lower));
 
     // CR 615.11 + CR 107.3i: `amount_dynamic` (the "prevent X … where X is
     // <quantity>" override) is populated at chunk level by
@@ -4560,6 +4583,27 @@ fn parse_prevent_effect(text: &str) -> Effect {
         scope,
         damage_source_filter,
         prevention_duration,
+    }
+}
+
+/// CR 615.2 + CR 109.4: Source-scoped prevent phrasing without a "target"
+/// keyword — "prevent all combat damage that other creatures would deal this
+/// turn" (Haze Frog). The `<source>` descriptor sits between "that " and
+/// " would deal"; route through the shared target grammar so "other"/"another"
+/// map to `FilterProp::Another`.
+fn parse_prevent_that_would_deal_source_filter(text: &str, lower: &str) -> Option<TargetFilter> {
+    let (before_would_deal, _) = split_once_on_lower(text, lower, " would deal")?;
+    let before_lower = before_would_deal.to_lowercase();
+    let (_, source_descriptor) = split_once_on_lower(before_would_deal, &before_lower, "that ")?;
+    let mut ctx = ParseContext::default();
+    let (filter, rem) = parse_target_with_ctx(source_descriptor.trim(), &mut ctx);
+    let rem = rem.trim().trim_end_matches('.');
+    if !rem.is_empty() {
+        return None;
+    }
+    match filter {
+        TargetFilter::Any | TargetFilter::Controller | TargetFilter::Player => None,
+        other => Some(other),
     }
 }
 
@@ -11548,6 +11592,34 @@ mod tests {
         }
     }
 
+    /// CR 121.1: a bare plural "draw cards" / "draw card" with no quantifier —
+    /// the residue left after the vote parser strips a dynamic count tail
+    /// ("... equal to the number of <X> votes") — yields a Fixed(1) placeholder
+    /// the vote aggregate binder then rebinds to `QuantityRef::VoteCount`.
+    #[test]
+    fn parse_bare_draw_cards_yields_fixed_one() {
+        for text in ["draw cards", "draw card", "draw cards."] {
+            let lower = text.to_lowercase();
+            match parse_numeric_imperative_ast(text, &lower) {
+                Some(NumericImperativeAst::Draw { count, up_to }) => {
+                    assert!(!up_to, "bare draw is not 'up to' for {text:?}");
+                    assert_eq!(count, QuantityExpr::Fixed { value: 1 }, "text={text:?}");
+                }
+                other => panic!("expected bare Draw, got {other:?} for {text:?}"),
+            }
+        }
+    }
+
+    /// Negative guard: a bare-draw with an unmodeled tail must NOT collapse to
+    /// Fixed(1) — it stays `None` (→ `Effect::Unimplemented` upstream) so the
+    /// dynamic-quantity coverage gap is not silently hidden.
+    #[test]
+    fn parse_draw_cards_with_unmodeled_tail_is_none() {
+        let text = "draw cards from the top of their library";
+        let lower = text.to_lowercase();
+        assert!(parse_numeric_imperative_ast(text, &lower).is_none());
+    }
+
     #[test]
     fn parse_earthbend_verb() {
         let text = "Earthbend 3 target land";
@@ -15926,6 +15998,42 @@ mod tests {
         assert_eq!(
             damage_source_filter, None,
             "recipient prevent must not carry a source filter"
+        );
+    }
+
+    /// CR 615.2 + CR 109.4: Haze Frog — "prevent all combat damage that other
+    /// creatures would deal this turn" must scope the shield to non-self creature
+    /// sources via `FilterProp::Another`, not a blanket prevent-all.
+    #[test]
+    fn prevent_that_other_creatures_would_deal_scopes_source_filter() {
+        let effect = parse_prevent_effect(
+            "Prevent all combat damage that other creatures would deal this turn.",
+        );
+        let Effect::PreventDamage {
+            amount,
+            target,
+            scope,
+            damage_source_filter,
+            prevention_duration,
+            ..
+        } = effect
+        else {
+            panic!("expected PreventDamage, got {effect:?}");
+        };
+        assert_eq!(amount, PreventionAmount::All);
+        assert_eq!(target, TargetFilter::Any);
+        assert_eq!(scope, PreventionScope::CombatDamage);
+        assert_eq!(prevention_duration, Some(Duration::UntilEndOfTurn));
+        let damage_source_filter =
+            damage_source_filter.expect("expected Typed creature source filter");
+        let TargetFilter::Typed(tf) = damage_source_filter else {
+            panic!("expected Typed source filter, got {damage_source_filter:?}");
+        };
+        assert!(has_type(&tf, TypeFilter::Creature));
+        assert!(
+            tf.properties.contains(&FilterProp::Another),
+            "other creatures must carry FilterProp::Another, got {:?}",
+            tf.properties
         );
     }
 

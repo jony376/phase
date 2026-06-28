@@ -11972,23 +11972,33 @@ fn try_parse_multi_target_counter_chain(
     })
 }
 
+/// True when a bare counter-chain segment qualifies its *target* as distinct
+/// (`another target`, `other target`, ordinal `third target`) — not when `another`
+/// modifies the counter quantity (`another +1/+1 counter on target creature`).
+fn segment_requires_distinct_target(segment: &str) -> bool {
+    nom_primitives::scan_at_word_boundaries(segment.trim(), |input| {
+        preceded(
+            opt(nom_primitives::parse_article),
+            alt((
+                tag::<_, _, OracleError<'_>>("another target"),
+                tag::<_, _, OracleError<'_>>("other target"),
+                tag::<_, _, OracleError<'_>>("third target"),
+            )),
+        )
+        .parse(input)
+        .ok()
+        .map(|(_, _)| ())
+    })
+    .is_some()
+}
+
 /// CR 115.4 + CR 601.2c: Bare counter-chain continuations re-invoke
 /// `try_parse_put_counter` on `put {segment}`; when the segment still says
 /// "another target" / "other target" / "third target", belt-and-suspenders
 /// re-inject `FilterProp::Another` in case the type-phrase recovery path
 /// dropped it (Incremental Growth / Incremental Blight class).
 fn ensure_another_on_counter_target(effect: Effect, segment: &str) -> Effect {
-    let lower = segment.trim().to_lowercase();
-    let has_distinct_target = [
-        "another target",
-        "other target",
-        "third target",
-        "another ",
-        "other ",
-    ]
-    .iter()
-    .any(|phrase| nom_primitives::scan_contains(&lower, phrase));
-    if !has_distinct_target {
+    if !segment_requires_distinct_target(segment) {
         return effect;
     }
     match effect {
@@ -24842,6 +24852,22 @@ mod tests {
         assert!(
             assert_plus_counter_node(third, 3, true).is_none(),
             "counter chain should contain exactly three nodes",
+        );
+    }
+
+    /// `another` modifying the counter quantity must not force `FilterProp::Another`
+    /// on the target — only target-qualified ordinals (`another target`, etc.) do.
+    #[test]
+    fn counter_chain_another_counter_quantity_does_not_require_distinct_target() {
+        let def = parse_effect_chain(
+            "Put a +1/+1 counter on target creature, another +1/+1 counter on target creature",
+            AbilityKind::Spell,
+        );
+
+        let second = assert_plus_counter_node(&def, 1, false).expect("second counter node");
+        assert!(
+            assert_plus_counter_node(second, 1, false).is_none(),
+            "counter chain should contain exactly two nodes",
         );
     }
 

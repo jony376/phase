@@ -11986,8 +11986,6 @@ fn segment_requires_distinct_target(segment: &str) -> bool {
             )),
         )
         .parse(input)
-        .ok()
-        .map(|(_, _)| ())
     })
     .is_some()
 }

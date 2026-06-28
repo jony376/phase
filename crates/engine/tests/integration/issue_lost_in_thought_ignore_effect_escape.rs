@@ -7,7 +7,7 @@ use engine::game::scenario::{GameScenario, P0, P1};
 
 use engine::types::ability::{Effect, GameRestriction};
 use engine::types::actions::GameAction;
-use engine::types::game_state::WaitingFor;
+use engine::types::game_state::{ExileCostSourceZone, PayCostKind, WaitingFor};
 use engine::types::identifiers::ObjectId;
 use engine::types::phase::Phase;
 
@@ -90,18 +90,22 @@ fn lost_in_thought_escape_lets_enchanted_creature_attack_until_next_turn() {
         .collect();
     assert_eq!(graveyard_cards.len(), 3);
 
-    for _ in 0..12 {
-        match &runner.state().waiting_for {
-            WaitingFor::EffectZoneChoice { .. } => {
-                runner
-                    .act(GameAction::SelectCards {
-                        cards: graveyard_cards.clone(),
-                    })
-                    .expect("exile three graveyard cards");
-            }
-            WaitingFor::Priority { .. } => break,
-            other => panic!("unexpected payment prompt: {other:?}"),
+    match &runner.state().waiting_for {
+        WaitingFor::PayCost {
+            kind: PayCostKind::ExileFromZone {
+                zone: ExileCostSourceZone::Graveyard,
+            },
+            count,
+            ..
+        } => {
+            assert_eq!(*count, 3);
+            runner
+                .act(GameAction::SelectCards {
+                    cards: graveyard_cards.clone(),
+                })
+                .expect("exile three graveyard cards");
         }
+        other => panic!("expected graveyard exile PayCost, got {other:?}"),
     }
     runner.advance_until_stack_empty();
 

@@ -12085,6 +12085,25 @@ mod tests {
             obj.base_power = Some(3);
             obj.base_toughness = Some(3);
         }
+        // A second other creature so the mandatory sacrifice does not
+        // auto-resolve when `FilterProp::Another` leaves exactly one eligible
+        // permanent (see sacrifice.rs mandatory-all fast path).
+        let grizzly_bears = create_object(
+            &mut state,
+            CardId(21),
+            PlayerId(0),
+            "Grizzly Bears".to_string(),
+            Zone::Battlefield,
+        );
+        {
+            let obj = state.objects.get_mut(&grizzly_bears).unwrap();
+            obj.card_types.core_types.push(CoreType::Creature);
+            obj.base_card_types = obj.card_types.clone();
+            obj.power = Some(2);
+            obj.toughness = Some(2);
+            obj.base_power = Some(2);
+            obj.base_toughness = Some(2);
+        }
         let library_cards: Vec<_> = (0..3)
             .map(|i| {
                 create_object(

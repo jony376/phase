@@ -1312,19 +1312,18 @@ pub(super) fn parse_targeted_action_ast(
         // with `FilterProp::Another`; `parse_count_expr`'s "another " arm would
         // mis-read that qualifier as an implicit count of 1 and strip it.
         let lower_rest = rest.trim_start().to_lowercase();
-        let (count, after_count) = if lower_rest.starts_with("another ")
-            || lower_rest.starts_with("other ")
-        {
-            (
-                crate::types::ability::QuantityExpr::Fixed { value: 1 },
-                rest.trim_start(),
-            )
-        } else {
-            super::super::oracle_util::parse_count_expr(rest).unwrap_or((
-                crate::types::ability::QuantityExpr::Fixed { value: 1 },
-                rest,
-            ))
-        };
+        let (count, after_count) =
+            if lower_rest.starts_with("another ") || lower_rest.starts_with("other ") {
+                (
+                    crate::types::ability::QuantityExpr::Fixed { value: 1 },
+                    rest.trim_start(),
+                )
+            } else {
+                super::super::oracle_util::parse_count_expr(rest).unwrap_or((
+                    crate::types::ability::QuantityExpr::Fixed { value: 1 },
+                    rest,
+                ))
+            };
         let (target_text, _) = super::strip_optional_target_prefix(after_count.trim_start());
         // Strip the "of their choice" / "of your choice" confirmation suffix —
         // CR 701.16b makes player choice the default, so the phrase is a no-op

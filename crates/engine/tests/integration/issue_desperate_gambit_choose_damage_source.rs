@@ -210,10 +210,10 @@ fn shield_targets_chosen_source(shield: &ReplacementDefinition, source: ObjectId
         })
 }
 
-fn shields_for_chosen_source<'a>(
-    runner: &'a engine::game::scenario::GameRunner,
+fn shields_for_chosen_source(
+    runner: &engine::game::scenario::GameRunner,
     source: ObjectId,
-) -> Vec<&'a ReplacementDefinition> {
+) -> Vec<&ReplacementDefinition> {
     let mut shields = runner
         .state()
         .objects

@@ -416,6 +416,9 @@ pub(crate) fn keys_from_trigger_def(def: &TriggerDefinition) -> (Keys, bool) {
             push(TriggerEventKey::EnterBattlefield(narrow));
             push(TriggerEventKey::Attacks);
         }
+        TriggerMode::EntersOrHauntedCreatureDies => {
+            push(TriggerEventKey::EnterBattlefield(narrow));
+        }
         TriggerMode::AttacksOrBlocks => {
             push(TriggerEventKey::Attacks);
             push(TriggerEventKey::Blocks);

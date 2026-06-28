@@ -5371,13 +5371,21 @@ fn normalize_compound_pronouns(text: &str) -> String {
     result
 }
 
+/// CR 702.55c: "~ enters or the creature it haunts dies" is a dedicated compound
+/// trigger mode, not a cross-subject or shared-subject split.
+fn is_enters_or_haunted_creature_dies_compound(cond_lower: &str) -> bool {
+    scan_contains(cond_lower, "enters or the creature it haunts dies")
+        || scan_contains(cond_lower, "enters the battlefield or the creature it haunts dies")
+}
+
 /// Split a disjunctive shared-subject event trigger into one reconstructed
 /// trigger line per event, with the subject shared across all of them. This is
 /// the single entry point for the whole class: the N-way serial form
 /// ("Whenever ~ A, B, or C") and the 2-way "or" form ("Whenever ~ A or B") are
 /// its two branches. CR 603.1: each listed event is an independent trigger
 /// condition. Dedicated 2-way compound `TriggerMode` variants (AttacksOrBlocks,
-/// EntersOrAttacks) are intentionally left unsplit by `split_or_event_compound`.
+/// EntersOrAttacks, EntersOrHauntedCreatureDies) are intentionally left unsplit
+/// by `split_or_event_compound`.
 ///
 /// Serial is tried first so a comma list ("A, B, or C") is not mis-split by the
 /// 2-way scanner; this preserves the prior dispatch order exactly.
@@ -5395,6 +5403,9 @@ fn split_shared_subject_event_list(cond_lower: &str, condition: &str) -> Option<
 ///
 /// CR 603.1: Each event is an independent trigger condition.
 fn split_cross_subject_event_compound(cond_lower: &str, condition: &str) -> Option<Vec<String>> {
+    if is_enters_or_haunted_creature_dies_compound(cond_lower) {
+        return None;
+    }
     let (after_lower, _) = parse_cross_subject_or_split(cond_lower).ok()?;
     let (after_original, before_original) = parse_cross_subject_or_split(condition).ok()?;
 
@@ -5537,9 +5548,10 @@ fn split_or_event_compound(cond_lower: &str, condition: &str) -> Option<Vec<Stri
     }
 
     // Patterns already handled as dedicated compound TriggerMode variants
-    // (EntersOrAttacks, AttacksOrBlocks) — do not split these.
+    // (EntersOrAttacks, AttacksOrBlocks, EntersOrHauntedCreatureDies) — do not split these.
     fn is_existing_compound_mode(cond_lower: &str) -> bool {
-        scan_contains(cond_lower, "enters or attacks")
+        is_enters_or_haunted_creature_dies_compound(cond_lower)
+            || scan_contains(cond_lower, "enters or attacks")
             || scan_contains(cond_lower, "enters the battlefield or attacks")
             || scan_contains(cond_lower, "attacks or blocks")
             // CR 702.29d: "cycle or discard" is a dedicated compound mode
@@ -7541,6 +7553,16 @@ fn try_parse_event(
         def.destination = Some(Zone::Battlefield);
         def.valid_card = Some(subject.clone());
         return Some((TriggerMode::EntersOrAttacks, def));
+    }
+
+    // CR 702.55c: "~ enters or the creature it haunts dies" — one compound trigger;
+    // the haunted-dies half is cloned into exile by `database::haunt` synthesis.
+    if is_enters_or_haunted_creature_dies_compound(rest) {
+        let mut def = make_base();
+        def.mode = TriggerMode::EntersOrHauntedCreatureDies;
+        def.destination = Some(Zone::Battlefield);
+        def.valid_card = Some(subject.clone());
+        return Some((TriggerMode::EntersOrHauntedCreatureDies, def));
     }
 
     // "attacks or blocks"
@@ -16390,6 +16412,30 @@ mod tests {
                 ..Default::default()
             }))
         );
+    }
+
+    /// CR 702.55c: haunt creature payoff — "~ enters or the creature it haunts dies"
+    /// must stay one compound trigger, not split into ETB + HauntedCreatureDies.
+    #[test]
+    fn trigger_enters_or_creature_it_haunts_dies_stays_compound() {
+        let triggers = parse_trigger_lines(
+            "When this creature enters or the creature it haunts dies, return target creature \
+             card from your graveyard to your hand.",
+            "Exhumer Thrull",
+        );
+        assert_eq!(
+            triggers.len(),
+            1,
+            "haunt creature payoff must not split into two triggers: {:?}",
+            triggers.iter().map(|t| &t.mode).collect::<Vec<_>>()
+        );
+        assert_eq!(triggers[0].mode, TriggerMode::EntersOrHauntedCreatureDies);
+        assert_eq!(triggers[0].destination, Some(Zone::Battlefield));
+        assert_eq!(triggers[0].valid_card, Some(TargetFilter::SelfRef));
+        assert!(triggers[0]
+            .execute
+            .as_ref()
+            .is_some_and(|a| matches!(a.effect.as_ref(), Effect::Bounce { .. })));
     }
 
     #[test]

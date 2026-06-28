@@ -139,6 +139,9 @@ pub fn trigger_matcher(mode: TriggerMode) -> Option<TriggerMatcher> {
         TriggerMode::ManaExpend => match_mana_expend,
         TriggerMode::EntersOrAttacks => match_enters_or_attacks,
         TriggerMode::AttacksOrBlocks => match_attacks_or_blocks,
+        // CR 702.55c: ETB half only on the battlefield; haunted-dies half is synthesized
+        // into exile as `HauntedCreatureDies`.
+        TriggerMode::EntersOrHauntedCreatureDies => match_changes_zone,
         TriggerMode::Crewed | TriggerMode::BecomesCrewed => match_vehicle_crewed,
         TriggerMode::Stationed => match_stationed,
         TriggerMode::Saddled | TriggerMode::BecomesSaddled => match_saddled,
@@ -417,6 +420,12 @@ pub fn build_trigger_registry() -> HashMap<TriggerMode, TriggerMatcher> {
 
     // Compound: attacks or blocks — fires on attack or block events
     r.insert(TriggerMode::AttacksOrBlocks, match_attacks_or_blocks);
+
+    // CR 702.55c: haunt creature ETB half — haunted-dies half is synthesized in exile.
+    r.insert(
+        TriggerMode::EntersOrHauntedCreatureDies,
+        match_changes_zone,
+    );
 
     // CR 702.26c: Phasing triggers fire when a permanent phases in.
     r.insert(TriggerMode::PhaseIn, match_phase_in);

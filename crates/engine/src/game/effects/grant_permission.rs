@@ -50,17 +50,20 @@ pub fn resolve(
         }
     ) {
         let source = ability.source_id;
-        for obj in state.objects.values_mut() {
-            obj.casting_permissions.retain(|p| {
-                !matches!(
-                    p,
-                    CastingPermission::PlayFromExile {
-                        duration: Duration::UntilPlayerExilesAnotherCardWithSource { .. },
-                        source_id: Some(sid),
-                        ..
-                    } if *sid == source
-                )
-            });
+        let object_ids: Vec<_> = state.objects.keys().copied().collect();
+        for id in object_ids {
+            if let Some(obj) = state.objects.get_mut(&id) {
+                obj.casting_permissions.retain(|p| {
+                    !matches!(
+                        p,
+                        CastingPermission::PlayFromExile {
+                            duration: Duration::UntilPlayerExilesAnotherCardWithSource { .. },
+                            source_id: Some(sid),
+                            ..
+                        } if sid == source
+                    )
+                });
+            }
         }
     }
 

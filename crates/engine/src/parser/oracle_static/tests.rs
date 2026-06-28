@@ -16608,13 +16608,17 @@ fn static_enchanted_creature_cant_attack_block_or_transform() {
 
 #[test]
 fn static_enchanted_creature_cant_attack_or_block_uses_enchanted_subject() {
-    let def = parse_static_line("Enchanted creature can't attack or block.").unwrap();
-    assert_eq!(def.mode, StaticMode::CantAttackOrBlock);
-    assert_eq!(
-        def.affected,
-        Some(TargetFilter::Typed(
-            TypedFilter::creature().properties(vec![FilterProp::EnchantedBy])
-        ))
+    let defs = parse_static_line_multi("Enchanted creature can't attack or block.");
+    let expected_affected = Some(TargetFilter::Typed(
+        TypedFilter::creature().properties(vec![FilterProp::EnchantedBy]),
+    ));
+    assert!(
+        defs.iter().any(|def| def.mode == StaticMode::CantAttack && def.affected == expected_affected),
+        "expected CantAttack on enchanted host, got {defs:?}"
+    );
+    assert!(
+        defs.iter().any(|def| def.mode == StaticMode::CantBlock && def.affected == expected_affected),
+        "expected CantBlock on enchanted host, got {defs:?}"
     );
 }
 

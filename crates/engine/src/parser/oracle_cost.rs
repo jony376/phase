@@ -1266,7 +1266,11 @@ fn strip_article<'a>(text: &'a str, lower: &str) -> &'a str {
 /// recovered without the prefix (article stripping, numeric count paths, etc.).
 fn ensure_another_sacrifice_filter(filter: TargetFilter, phrase: &str) -> TargetFilter {
     let lower = phrase.trim().to_lowercase();
-    if !lower.starts_with("another ") && !lower.starts_with("other ") {
+    let has_another_prefix = nom_on_lower(&lower, &lower, |i| {
+        alt((tag("another "), tag("other "))).parse(i).map(|_| ())
+    })
+    .is_some();
+    if !has_another_prefix {
         return filter;
     }
     match filter {

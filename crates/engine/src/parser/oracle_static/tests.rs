@@ -5444,6 +5444,16 @@ fn static_enchanted_creature_doesnt_untap() {
 }
 
 #[test]
+fn static_enchanted_creature_doesnt_untap_if_sleep_counter() {
+    let def = parse_static_line(
+        "Enchanted creature doesn't untap during its controller's untap step if it has a sleep counter on it.",
+    )
+    .unwrap();
+    assert_eq!(def.mode, StaticMode::CantUntap);
+    assert!(def.condition.is_some(), "if-clause must become a static condition");
+}
+
+#[test]
 fn static_creatures_with_counters_dont_untap() {
     let def = parse_static_line(
         "Creatures with ice counters on them don't untap during their controllers' untap steps.",

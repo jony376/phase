@@ -3040,23 +3040,18 @@ pub(crate) fn ensure_another_prefix_in_filter(text: &str, filter: &mut TargetFil
 }
 
 fn inject_another_on_creature_legs(filter: &mut TargetFilter) {
-    match filter {
-        TargetFilter::Typed(tf) => {
-            if tf
-                .type_filters
-                .iter()
-                .any(|t| matches!(t, TypeFilter::Creature | TypeFilter::Permanent))
-                && !tf.properties.contains(&FilterProp::Another)
-            {
-                tf.properties.push(FilterProp::Another);
-            }
+    if let TargetFilter::Typed(tf) = filter
+        && tf
+            .type_filters
+            .iter()
+            .any(|t| matches!(t, TypeFilter::Creature | TypeFilter::Permanent))
+        && !tf.properties.contains(&FilterProp::Another)
+    {
+        tf.properties.push(FilterProp::Another);
+    } else if let TargetFilter::Or { filters } | TargetFilter::And { filters } = filter {
+        for f in filters {
+            inject_another_on_creature_legs(f);
         }
-        TargetFilter::Or { filters } | TargetFilter::And { filters } => {
-            for f in filters {
-                inject_another_on_creature_legs(f);
-            }
-        }
-        _ => {}
     }
 }
 

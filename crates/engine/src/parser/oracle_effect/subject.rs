@@ -571,13 +571,10 @@ fn parse_base_pt_axes(input: &str) -> OracleResult<'_, BasePtSetAxes> {
                 set_toughness: toughness.is_some(),
             },
         ),
-        value(
-            BasePtSetAxes {
-                set_power: false,
-                set_toughness: true,
-            },
-            tag("base toughness"),
-        ),
+        map(tag("base toughness"), |_| BasePtSetAxes {
+            set_power: false,
+            set_toughness: true,
+        }),
     ))
     .parse(input)
 }

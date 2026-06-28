@@ -1,7 +1,7 @@
 use crate::game::effects::choose_damage_source;
 use crate::game::effects::prevent_damage::resolve_source_filter;
 use crate::types::ability::{
-    DamageModification, DamageRedirectTarget, Effect, EffectError, EffectKind, PreventionAmount,
+    DamageRedirectTarget, Effect, EffectError, EffectKind, PreventionAmount,
     ReplacementDefinition, ResolvedAbility, TargetFilter, TargetRef,
 };
 use crate::types::card_type::CoreType;

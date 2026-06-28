@@ -128,10 +128,7 @@ fn desperate_gambit_damage_source_choice_excludes_opponent_sources() {
     for _ in 0..32 {
         match &runner.state().waiting_for {
             WaitingFor::DamageSourceChoice { options, .. } => {
-                assert!(
-                    options.contains(&p0_source),
-                    "P0's source must be offered"
-                );
+                assert!(options.contains(&p0_source), "P0's source must be offered");
                 assert!(
                     !options.contains(&p1_source),
                     "P1's source must not be offered under 'you control'"

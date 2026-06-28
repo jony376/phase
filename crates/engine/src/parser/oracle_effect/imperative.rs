@@ -1311,12 +1311,17 @@ pub(super) fn parse_targeted_action_ast(
         // CR 115.10a + CR 121.1: "sacrifice another creature" scopes the filter
         // with `FilterProp::Another`; `parse_count_expr`'s "another " arm would
         // mis-read that qualifier as an implicit count of 1 and strip it.
-        let lower_rest = rest.trim_start().to_lowercase();
+        let rest_trimmed = rest.trim_start();
+        let lower_rest = rest_trimmed.to_lowercase();
         let (count, after_count) =
-            if lower_rest.starts_with("another ") || lower_rest.starts_with("other ") {
+            if nom_on_lower(rest_trimmed, &lower_rest, |input| {
+                value((), alt((tag("another "), tag("other ")))).parse(input)
+            })
+            .is_some()
+            {
                 (
                     crate::types::ability::QuantityExpr::Fixed { value: 1 },
-                    rest.trim_start(),
+                    rest_trimmed,
                 )
             } else {
                 super::super::oracle_util::parse_count_expr(rest).unwrap_or((

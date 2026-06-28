@@ -3032,8 +3032,13 @@ fn stack_spell_filter(mut typed: TypedFilter) -> TargetFilter {
 /// leading "another"/"other" qualifier but the lowered filter omitted it
 /// (cluster 33 — Morkrut Necropod, Incremental Growth class).
 pub(crate) fn ensure_another_prefix_in_filter(text: &str, filter: &mut TargetFilter) {
-    let trimmed = text.trim_start().to_lowercase();
-    if !(trimmed.starts_with("another ") || trimmed.starts_with("other ")) {
+    let trimmed = text.trim_start();
+    let lower = trimmed.to_lowercase();
+    if nom_on_lower(trimmed, &lower, |input| {
+        value((), alt((tag("another "), tag("other ")))).parse(input)
+    })
+    .is_none()
+    {
         return;
     }
     inject_another_on_creature_legs(filter);

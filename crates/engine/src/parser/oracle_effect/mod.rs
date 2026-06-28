@@ -50919,7 +50919,7 @@ mod tests {
              Until your next turn, this creature's base power becomes twice that card's power \
              and its base toughness becomes twice that card's toughness. \
              Put the revealed cards on the bottom of your library in a random order.",
-            AbilityKind::Triggered,
+            AbilityKind::Spell,
         );
         let Effect::RevealUntil {
             filter,

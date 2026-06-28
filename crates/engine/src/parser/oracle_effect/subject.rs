@@ -4,7 +4,7 @@ use nom::bytes::complete::{tag, take_till, take_until};
 use nom::character::complete::multispace0;
 use nom::combinator::{all_consuming, map, opt, rest, value, verify};
 use nom::multi::separated_list1;
-use nom::sequence::{delimited, preceded, terminated};
+use nom::sequence::{delimited, preceded, terminated, tuple};
 use nom::Parser;
 
 use super::animation::{
@@ -587,10 +587,10 @@ enum BasePtSetValue {
 /// which routes through the shared CDA quantity grammar so every recognized
 /// count/aggregate/possessive-power phrase composes ("the number of Towns you
 /// control", "~'s power", …).
-fn parse_base_pt_set_value(
-    remainder: &str,
+fn parse_base_pt_set_value<'a>(
+    remainder: &'a str,
     ctx: &mut ParseContext,
-) -> Option<(BasePtSetValue, &str)> {
+) -> Option<(BasePtSetValue, &'a str)> {
     if let Some((power, toughness, after_pt)) =
         super::animation::parse_fixed_become_pt_prefix(remainder)
     {
@@ -640,15 +640,15 @@ fn parse_base_pt_per_axis_conjunct_value(
 ) -> Option<(BasePtSetAxes, BasePtSetValue)> {
     type VE<'a> = OracleError<'a>;
     let lower = conjunct.to_lowercase();
-    let (rest_lower, axes) = (
+    let (rest_lower, (_, axes, _, _, _)) = tuple((
         opt(tag::<_, _, VE>("its ")),
         parse_base_pt_axes,
         tag(" become"),
         opt(tag("s")),
         tag(" "),
-    )
-        .parse(lower.as_str())
-        .ok()?;
+    ))
+    .parse(lower.as_str())
+    .ok()?;
     let rest_orig = &conjunct[conjunct.len() - rest_lower.len()..];
     let (value, _) = parse_base_pt_set_value(rest_orig, ctx)?;
     Some((axes, value))

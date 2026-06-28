@@ -2643,7 +2643,7 @@ pub(crate) fn try_parse_ignore_effect_escape_line(
         cost: AbilityCost::Exile {
             count,
             zone: Some(Zone::Graveyard),
-            filter: Some(filter),
+            filter,
         },
         payer,
         expiration,

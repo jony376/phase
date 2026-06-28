@@ -5375,7 +5375,10 @@ fn normalize_compound_pronouns(text: &str) -> String {
 /// trigger mode, not a cross-subject or shared-subject split.
 fn is_enters_or_haunted_creature_dies_compound(cond_lower: &str) -> bool {
     scan_contains(cond_lower, "enters or the creature it haunts dies")
-        || scan_contains(cond_lower, "enters the battlefield or the creature it haunts dies")
+        || scan_contains(
+            cond_lower,
+            "enters the battlefield or the creature it haunts dies",
+        )
 }
 
 /// Split a disjunctive shared-subject event trigger into one reconstructed

@@ -422,10 +422,7 @@ pub fn build_trigger_registry() -> HashMap<TriggerMode, TriggerMatcher> {
     r.insert(TriggerMode::AttacksOrBlocks, match_attacks_or_blocks);
 
     // CR 702.55c: haunt creature ETB half — haunted-dies half is synthesized in exile.
-    r.insert(
-        TriggerMode::EntersOrHauntedCreatureDies,
-        match_changes_zone,
-    );
+    r.insert(TriggerMode::EntersOrHauntedCreatureDies, match_changes_zone);
 
     // CR 702.26c: Phasing triggers fire when a permanent phases in.
     r.insert(TriggerMode::PhaseIn, match_phase_in);

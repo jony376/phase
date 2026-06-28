@@ -1267,7 +1267,7 @@ fn strip_article<'a>(text: &'a str, lower: &str) -> &'a str {
 fn ensure_another_sacrifice_filter(filter: TargetFilter, phrase: &str) -> TargetFilter {
     let lower = phrase.trim().to_lowercase();
     let has_another_prefix = nom_on_lower(&lower, &lower, |i| {
-        alt((tag("another "), tag("other "))).parse(i).map(|_| ())
+        value((), alt((tag("another "), tag("other ")))).parse(i)
     })
     .is_some();
     if !has_another_prefix {

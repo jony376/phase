@@ -170,12 +170,7 @@ fn faiths_fetters_prevents_enchanted_creature_from_blocking() {
 
     events.clear();
     assert!(
-        declare_blockers(
-            &mut state,
-            &[(bear_obj, attacker_obj)],
-            &mut events,
-        )
-        .is_err(),
+        declare_blockers(&mut state, &[(bear_obj, attacker_obj)], &mut events).is_err(),
         "enchanted creature must be unable to block under Faith's Fetters"
     );
 }

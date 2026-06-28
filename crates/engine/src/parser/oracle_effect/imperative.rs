@@ -14239,6 +14239,10 @@ mod tests {
             ChooseImperativeAst::DamageSource { ref source_filter } => {
                 let tf = typed_leg(source_filter).expect("expected typed source filter");
                 assert_eq!(tf.controller, Some(ControllerRef::You));
+                assert!(
+                    tf.type_filters.is_empty(),
+                    "article 'a' must not parse as subtype A: {tf:?}"
+                );
             }
             other => panic!("expected DamageSource AST, got {other:?}"),
         }
@@ -14248,6 +14252,10 @@ mod tests {
             Effect::ChooseDamageSource { source_filter } => {
                 let tf = typed_leg(&source_filter).expect("expected typed source filter");
                 assert_eq!(tf.controller, Some(ControllerRef::You));
+                assert!(
+                    tf.type_filters.is_empty(),
+                    "article 'a' must not parse as subtype A: {tf:?}"
+                );
             }
             other => panic!("expected ChooseDamageSource effect, got {other:?}"),
         }

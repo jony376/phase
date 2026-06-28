@@ -2595,8 +2595,12 @@ pub(crate) fn try_parse_ignore_effect_escape_line(
         super::oracle_nom::bridge::split_once_on_lower(cost_tail, &cost_lower, " rather than pay ")
             .map(|(exile, ignore)| (exile.trim(), ignore.trim()))
             .or_else(|| {
-                super::oracle_nom::bridge::split_once_on_lower(cost_tail, &cost_lower, " as though ")
-                    .map(|(exile, _)| (exile.trim(), ""))
+                super::oracle_nom::bridge::split_once_on_lower(
+                    cost_tail,
+                    &cost_lower,
+                    " as though ",
+                )
+                .map(|(exile, _)| (exile.trim(), ""))
             })?;
 
     if !ignore_tail.is_empty() {
@@ -2610,9 +2614,8 @@ pub(crate) fn try_parse_ignore_effect_escape_line(
     }
 
     let exile_lower = exile_tail.to_lowercase();
-    let (_, _, after_exile_lower) = nom_primitives::scan_preceded(&exile_lower, |i| {
-        tag::<_, _, VE>("exile ").parse(i)
-    })?;
+    let (_, _, after_exile_lower) =
+        nom_primitives::scan_preceded(&exile_lower, |i| tag::<_, _, VE>("exile ").parse(i))?;
     let consumed = exile_lower.len() - after_exile_lower.len();
     let after_exile = exile_tail[consumed..].trim_start();
 

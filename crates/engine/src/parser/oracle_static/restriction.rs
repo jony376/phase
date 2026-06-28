@@ -2581,10 +2581,7 @@ pub(crate) fn try_parse_ignore_effect_escape_line(
             },
         )
     } else {
-        (
-            text.trim(),
-            IgnoreEffectExpiration::UntilEndOfTurn,
-        )
+        (text.trim(), IgnoreEffectExpiration::UntilEndOfTurn)
     };
 
     let cost_lower = cost_tail.to_lowercase();
@@ -2609,8 +2606,9 @@ pub(crate) fn try_parse_ignore_effect_escape_line(
 
     if !ignore_tail.is_empty() {
         let ignore_lower = ignore_tail.to_lowercase();
-        let recognized = nom_primitives::scan_contains(&ignore_lower, "ignore this effect until end of turn")
-            || nom_primitives::scan_contains(&ignore_lower, "were not on the battlefield");
+        let recognized =
+            nom_primitives::scan_contains(&ignore_lower, "ignore this effect until end of turn")
+                || nom_primitives::scan_contains(&ignore_lower, "were not on the battlefield");
         if !recognized {
             return None;
         }

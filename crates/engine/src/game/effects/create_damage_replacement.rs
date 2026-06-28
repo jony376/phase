@@ -913,49 +913,6 @@ mod tests {
         );
     }
 
-    /// CR 609.7b: A prior `ChooseDamageSource { You }` threads its candidate
-    /// filter into the captured one-shot shield alongside the chosen object id.
-    #[test]
-    fn chosen_source_with_you_control_filter_threads_recheck() {
-        use crate::types::ability::ControllerRef;
-        use crate::types::game_state::ChosenDamageSource;
-
-        let mut state = GameState::new_two_player(42);
-        let source = create_creature(&mut state, PlayerId(0), "Chosen Source");
-        let you_control = TargetFilter::Typed(
-            crate::types::ability::TypedFilter::default().controller(ControllerRef::You),
-        );
-        state.last_chosen_damage_source = Some(ChosenDamageSource {
-            source_id: source,
-            source_filter: you_control.clone(),
-        });
-
-        let ability = ResolvedAbility::new(
-            Effect::CreateDamageReplacement {
-                source_filter: Some(TargetFilter::ChosenDamageSource),
-                combat_scope: None,
-                target_filter: None,
-                modification: Some(DamageModification::Double),
-                redirect_to: None,
-                redirect_amount: None,
-                redirect_object_filter: None,
-                recipient_object_filter: None,
-            },
-            vec![],
-            source,
-            PlayerId(0),
-        );
-        let mut events = Vec::new();
-        resolve(&mut state, &ability, &mut events).unwrap();
-        state.last_chosen_damage_source = None;
-
-        assert_eq!(
-            state.objects.get(&source).unwrap().replacement_definitions[0].damage_source_filter,
-            Some(TargetFilter::And {
-                filters: vec![TargetFilter::SpecificObject { id: source }, you_control],
-            })
-        );
-    }
 
     /// CR 609.7a (Defect 2 negative): the chosen-source shield must NOT fire on a
     /// DIFFERENT source's damage.

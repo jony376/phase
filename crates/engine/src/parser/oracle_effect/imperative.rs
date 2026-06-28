@@ -14236,8 +14236,8 @@ mod tests {
         let ast = parse_choose_ast(text, &lower, &mut ParseContext::default())
             .expect("must parse choose-a-source-you-control");
         match ast {
-            ChooseImperativeAst::DamageSource { source_filter } => {
-                let tf = typed_leg(&source_filter).expect("expected typed source filter");
+            ChooseImperativeAst::DamageSource { ref source_filter } => {
+                let tf = typed_leg(source_filter).expect("expected typed source filter");
                 assert_eq!(tf.controller, Some(ControllerRef::You));
             }
             other => panic!("expected DamageSource AST, got {other:?}"),

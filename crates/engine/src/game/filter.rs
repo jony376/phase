@@ -1842,7 +1842,18 @@ fn filter_inner_for_object(
         TargetFilter::ChosenDamageSource => state
             .last_chosen_damage_source
             .as_ref()
-            .is_some_and(|choice| choice.source_id == object_id),
+            .is_some_and(|choice| {
+                choice.source_id == object_id
+                    && (matches!(
+                        choice.source_filter,
+                        TargetFilter::Any | TargetFilter::ChosenDamageSource
+                    ) || matches_target_filter(
+                        state,
+                        object_id,
+                        &choice.source_filter,
+                        ctx,
+                    ))
+            }),
         // "card named [literal]" — static name match.
         TargetFilter::Named { name } => obj.name == *name,
         // CR 400.3: Owner is a player-resolving filter (resolves to the owner of

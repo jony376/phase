@@ -4570,14 +4570,6 @@ fn parse_oneshot_source_filter(body: &str) -> Option<TargetFilter> {
     .parse(subject)
     {
         if rest.trim().is_empty() {
-            // TODO (known limitation, deferred): the candidate constraint on the
-            // chosen source is dropped. Desperate Gambit's separate "Choose a
-            // source you control" sentence parses as TargetOnly{Any}, and the
-            // inline source prompt enumerates with TargetFilter::Any — so a
-            // "you control" restriction (and any similar qualifier) is not yet
-            // enforced when the player picks the source. Closing this needs the
-            // pre-choice candidate filter threaded into ChosenDamageSource;
-            // out of scope for this change.
             return Some(TargetFilter::ChosenDamageSource);
         }
     }
@@ -4615,6 +4607,19 @@ fn parse_redirect_recipient_phrase(
         ),
     ))
     .parse(input)
+}
+
+pub(crate) fn parse_choose_damage_source_candidate(input: &str) -> Option<TargetFilter> {
+    let input = input.trim().trim_end_matches('.');
+    if let Some(filter) = parse_damage_source_subject_filter(input) {
+        return Some(filter);
+    }
+    let (rest, filter) = parse_damage_history_source(input)?;
+    if rest.trim().is_empty() {
+        Some(filter)
+    } else {
+        None
+    }
 }
 
 /// Parse the damage source filter from the subject clause before "would deal".

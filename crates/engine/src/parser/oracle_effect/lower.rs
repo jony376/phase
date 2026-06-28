@@ -2096,11 +2096,11 @@ fn definition_contains_choose_damage_source(def: &AbilityDefinition) -> bool {
         return true;
     }
     def.sub_ability
-        .as_ref()
+        .as_deref()
         .is_some_and(definition_contains_choose_damage_source)
         || def
             .else_ability
-            .as_ref()
+            .as_deref()
             .is_some_and(definition_contains_choose_damage_source)
 }
 
@@ -2124,10 +2124,10 @@ fn rewrite_oneshot_selfref_to_chosen_in_effect(effect: &mut Effect) {
             lose_effect,
             ..
         } => {
-            if let Some(win) = win_effect {
+            if let Some(win) = win_effect.as_deref_mut() {
                 rewrite_oneshot_selfref_to_chosen_in_def(win);
             }
-            if let Some(lose) = lose_effect {
+            if let Some(lose) = lose_effect.as_deref_mut() {
                 rewrite_oneshot_selfref_to_chosen_in_def(lose);
             }
         }
@@ -2137,27 +2137,24 @@ fn rewrite_oneshot_selfref_to_chosen_in_effect(effect: &mut Effect) {
 
 fn rewrite_oneshot_selfref_to_chosen_in_def(def: &mut AbilityDefinition) {
     rewrite_oneshot_selfref_to_chosen_in_effect(&mut def.effect);
-    if let Some(sub) = def.sub_ability.as_mut() {
+    if let Some(sub) = def.sub_ability.as_deref_mut() {
         rewrite_oneshot_selfref_to_chosen_in_def(sub);
     }
-    if let Some(else_def) = def.else_ability.as_mut() {
+    if let Some(else_def) = def.else_ability.as_deref_mut() {
         rewrite_oneshot_selfref_to_chosen_in_def(else_def);
     }
 }
 
 fn thread_chosen_damage_source_into_oneshot_effects(defs: &mut [AbilityDefinition]) {
-    if !defs
-        .iter()
-        .any(definition_contains_choose_damage_source)
-    {
+    if !defs.iter().any(definition_contains_choose_damage_source) {
         return;
     }
     for def in defs.iter_mut() {
         rewrite_oneshot_selfref_to_chosen_in_effect(&mut def.effect);
-        if let Some(sub) = def.sub_ability.as_mut() {
+        if let Some(sub) = def.sub_ability.as_deref_mut() {
             rewrite_oneshot_selfref_to_chosen_in_def(sub);
         }
-        if let Some(else_def) = def.else_ability.as_mut() {
+        if let Some(else_def) = def.else_ability.as_deref_mut() {
             rewrite_oneshot_selfref_to_chosen_in_def(else_def);
         }
     }

@@ -76,7 +76,12 @@ fn faiths_fetters_prevents_enchanted_creature_from_attacking() {
 
     let mut events = Vec::new();
     assert!(
-        declare_attackers(&mut state, &[(bear_obj, AttackTarget::Player(P1))], &mut events).is_err(),
+        declare_attackers(
+            &mut state,
+            &[(bear_obj, AttackTarget::Player(P1))],
+            &mut events,
+        )
+        .is_err(),
         "enchanted creature must be unable to attack under Faith's Fetters"
     );
 }
@@ -154,13 +159,23 @@ fn faiths_fetters_prevents_enchanted_creature_from_blocking() {
 
     let mut events = Vec::new();
     assert!(
-        declare_attackers(&mut state, &[(attacker_obj, AttackTarget::Player(P0))], &mut events).is_ok(),
+        declare_attackers(
+            &mut state,
+            &[(attacker_obj, AttackTarget::Player(P0))],
+            &mut events,
+        )
+        .is_ok(),
         "attacker must be able to attack P0"
     );
 
     events.clear();
     assert!(
-        declare_blockers(&mut state, &[(bear_obj, attacker_obj)], &mut events).is_err(),
+        declare_blockers(
+            &mut state,
+            &[(bear_obj, attacker_obj)],
+            &mut events,
+        )
+        .is_err(),
         "enchanted creature must be unable to block under Faith's Fetters"
     );
 }

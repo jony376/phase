@@ -25,9 +25,7 @@ fn haze_frog_etb_prevent_scopes_other_creature_sources() {
     let trigger = parsed
         .triggers
         .iter()
-        .find(|t| {
-            t.mode == TriggerMode::ChangesZone && t.destination == Some(Zone::Battlefield)
-        })
+        .find(|t| t.mode == TriggerMode::ChangesZone && t.destination == Some(Zone::Battlefield))
         .expect("Haze Frog must have an ETB trigger");
     let execute = trigger.execute.as_ref().expect("execute");
     let Effect::PreventDamage {

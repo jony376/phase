@@ -11980,13 +11980,16 @@ fn try_parse_multi_target_counter_chain(
 fn ensure_another_on_counter_target(effect: Effect, segment: &str) -> Effect {
     let lower = segment.trim().to_lowercase();
     let has_distinct_target = nom_on_lower(&lower, &lower, |i| {
-        value((), alt((
-            tag("another target"),
-            tag("other target"),
-            tag("third target"),
-            tag("another "),
-            tag("other "),
-        )))
+        value(
+            (),
+            alt((
+                tag("another target"),
+                tag("other target"),
+                tag("third target"),
+                tag("another "),
+                tag("other "),
+            )),
+        )
         .parse(i)
     })
     .is_some();

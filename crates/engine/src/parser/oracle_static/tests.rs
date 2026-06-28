@@ -16573,7 +16573,7 @@ fn static_enchanted_creature_loses_abilities_and_cant_attack_or_block() {
         assert_eq!(
             def.affected,
             Some(TargetFilter::Typed(
-                TypedFilter::creature().properties(vec![FilterProp::EnchantedBy])
+                TypedFilter::creature().properties(vec![FilterProp::EnchantedBy]),
             ))
         );
     }
@@ -16582,7 +16582,11 @@ fn static_enchanted_creature_loses_abilities_and_cant_attack_or_block() {
 #[test]
 fn static_enchanted_creature_cant_attack_block_or_transform() {
     let defs = parse_static_line_multi("Enchanted creature can't attack, block, or transform.");
-    assert_eq!(defs.len(), 3, "expected three restriction statics, got {defs:?}");
+    assert_eq!(
+        defs.len(),
+        3,
+        "expected three restriction statics, got {defs:?}"
+    );
     for mode in [
         StaticMode::CantAttack,
         StaticMode::CantBlock,
@@ -16597,7 +16601,7 @@ fn static_enchanted_creature_cant_attack_block_or_transform() {
     assert!(defs.iter().all(|def| {
         def.affected
             == Some(TargetFilter::Typed(
-                TypedFilter::creature().properties(vec![FilterProp::EnchantedBy])
+                TypedFilter::creature().properties(vec![FilterProp::EnchantedBy]),
             ))
     }));
 }

@@ -2,8 +2,7 @@
 
 use engine::parser::parse_oracle_text;
 use engine::types::ability::{
-    AbilityCost, AbilityKind, ActivationRestriction, Effect, FilterProp, TargetFilter,
-    TypedFilter,
+    AbilityCost, AbilityKind, ActivationRestriction, Effect, FilterProp, TargetFilter, TypedFilter,
 };
 use engine::types::statics::StaticMode;
 
@@ -67,7 +66,7 @@ fn bound_by_moonsilver_parser_sacrifice_another_attach_activated() {
             s.mode == StaticMode::CantAttack
                 && s.affected
                     == Some(TargetFilter::Typed(
-                        TypedFilter::creature().properties(vec![FilterProp::EnchantedBy])
+                        TypedFilter::creature().properties(vec![FilterProp::EnchantedBy]),
                     ))
         }),
         "expected enchanted-host CantAttack static"

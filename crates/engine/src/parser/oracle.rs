@@ -12129,11 +12129,7 @@ mod tests {
             tf.properties
         );
 
-        let Effect::Attach {
-            attachment,
-            target,
-        } = ability.effect.as_ref()
-        else {
+        let Effect::Attach { attachment, target } = ability.effect.as_ref() else {
             panic!("expected Attach effect, got {:?}", ability.effect);
         };
         assert_eq!(*attachment, TargetFilter::SelfRef);
@@ -12162,9 +12158,10 @@ mod tests {
         assert!(
             r.statics.iter().any(|s| {
                 s.mode == StaticMode::CantAttack
-                    && s.affected == Some(TargetFilter::Typed(
-                        TypedFilter::creature().properties(vec![FilterProp::EnchantedBy])
-                    ))
+                    && s.affected
+                        == Some(TargetFilter::Typed(
+                            TypedFilter::creature().properties(vec![FilterProp::EnchantedBy]),
+                        ))
             }),
             "expected CantAttack on enchanted host, got {:?}",
             r.statics
@@ -12172,19 +12169,21 @@ mod tests {
         assert!(
             r.statics.iter().any(|s| {
                 s.mode == StaticMode::CantBlock
-                    && s.affected == Some(TargetFilter::Typed(
-                        TypedFilter::creature().properties(vec![FilterProp::EnchantedBy])
-                    ))
+                    && s.affected
+                        == Some(TargetFilter::Typed(
+                            TypedFilter::creature().properties(vec![FilterProp::EnchantedBy]),
+                        ))
             }),
             "expected CantBlock on enchanted host, got {:?}",
             r.statics
         );
         assert!(
             r.statics.iter().any(|s| {
-                matches!(s.mode, StaticMode::Other(name) if name == "CantTransform")
-                    && s.affected == Some(TargetFilter::Typed(
-                        TypedFilter::creature().properties(vec![FilterProp::EnchantedBy])
-                    ))
+                matches!(&s.mode, StaticMode::Other(name) if name == "CantTransform")
+                    && s.affected
+                        == Some(TargetFilter::Typed(
+                            TypedFilter::creature().properties(vec![FilterProp::EnchantedBy]),
+                        ))
             }),
             "expected CantTransform on enchanted host, got {:?}",
             r.statics

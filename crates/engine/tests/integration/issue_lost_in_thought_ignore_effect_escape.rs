@@ -92,8 +92,7 @@ fn lost_in_thought_escape_lets_enchanted_creature_attack_until_next_turn() {
 
     match &runner.state().waiting_for {
         WaitingFor::PayCost {
-            kind:
-                PayCostKind::ExileFromZone { .. },
+            kind: PayCostKind::ExileFromZone { .. },
             count,
             ..
         } => {

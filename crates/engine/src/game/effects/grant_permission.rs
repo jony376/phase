@@ -60,7 +60,7 @@ pub fn resolve(
                             duration: Duration::UntilPlayerExilesAnotherCardWithSource { .. },
                             source_id: Some(sid),
                             ..
-                        } if sid == source
+                        } if *sid == source
                     )
                 });
             }

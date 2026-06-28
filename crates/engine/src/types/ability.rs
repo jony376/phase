@@ -15933,7 +15933,6 @@ impl TriggerDefinition {
 /// Static ability definition with typed fields. Zero params HashMap.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StaticDefinition {
-    ignore_effect_escape: None,
     #[serde(deserialize_with = "crate::types::statics::deserialize_static_mode_fwd")]
     pub mode: StaticMode,
     #[serde(default)]

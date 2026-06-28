@@ -10330,7 +10330,6 @@ mod tests {
             AbilityKind::Spell,
             Effect::GenericEffect {
                 static_abilities: vec![StaticDefinition {
-                    ignore_effect_escape: None,
                     mode: StaticMode::MustBeBlocked,
                     affected: None,
                     modifications: vec![ContinuousModification::AddStaticMode {
@@ -10370,7 +10369,6 @@ mod tests {
             AbilityKind::Spell,
             Effect::GenericEffect {
                 static_abilities: vec![StaticDefinition {
-                    ignore_effect_escape: None,
                     mode: StaticMode::Continuous,
                     affected: None,
                     modifications: vec![
@@ -11353,7 +11351,6 @@ mod tests {
         let oracle = "As an additional cost to cast blue permanent spells, you may pay 2 life. Those spells cost {U} less to cast if you paid life this way. This effect reduces only the amount of blue mana you pay.";
         face.oracle_text = Some(oracle.to_string());
         face.static_abilities.push(StaticDefinition {
-            ignore_effect_escape: None,
             mode: StaticMode::DefilerCostReduction {
                 color: ManaColor::Blue,
                 life_cost: 2,
@@ -11385,7 +11382,6 @@ mod tests {
         let oracle = "As an additional cost to cast blue permanent spells, you may pay 2 life.\nThose spells cost {U} less to cast if you paid life this way.";
         face.oracle_text = Some(oracle.to_string());
         face.static_abilities.push(StaticDefinition {
-            ignore_effect_escape: None,
             mode: StaticMode::DefilerCostReduction {
                 color: ManaColor::Blue,
                 life_cost: 2,
@@ -11417,7 +11413,6 @@ mod tests {
         let oracle = "As an additional cost to cast artifact spells, you may pay 2 life. Those spells cost {1} less to cast.";
         face.oracle_text = Some(oracle.to_string());
         face.static_abilities.push(StaticDefinition {
-            ignore_effect_escape: None,
             mode: StaticMode::DefilerCostReduction {
                 color: ManaColor::Blue,
                 life_cost: 2,
@@ -11571,7 +11566,6 @@ mod tests {
         let oracle = "Skip your draw step.";
         face.oracle_text = Some(oracle.to_string());
         face.static_abilities.push(StaticDefinition {
-            ignore_effect_escape: None,
             mode: StaticMode::SkipStep { step: Phase::Draw },
             affected: Some(TargetFilter::Controller),
             modifications: vec![],
@@ -11599,7 +11593,6 @@ mod tests {
         let oracle = "Players skip their upkeep steps.";
         face.oracle_text = Some(oracle.to_string());
         face.static_abilities.push(StaticDefinition {
-            ignore_effect_escape: None,
             mode: StaticMode::SkipStep {
                 step: Phase::Upkeep,
             },
@@ -11639,7 +11632,6 @@ mod tests {
         let oracle = "Players can't draw cards.";
         face.oracle_text = Some(oracle.to_string());
         face.static_abilities.push(StaticDefinition {
-            ignore_effect_escape: None,
             mode: StaticMode::CantDraw {
                 who: ProhibitionScope::AllPlayers,
             },
@@ -11670,7 +11662,6 @@ mod tests {
         let oracle = "You can't draw cards.";
         face.oracle_text = Some(oracle.to_string());
         face.static_abilities.push(StaticDefinition {
-            ignore_effect_escape: None,
             mode: StaticMode::CantDraw {
                 who: ProhibitionScope::Controller,
             },
@@ -11703,7 +11694,6 @@ mod tests {
         let oracle = "Your opponents play with their hands revealed.";
         face.oracle_text = Some(oracle.to_string());
         face.static_abilities.push(StaticDefinition {
-            ignore_effect_escape: None,
             mode: StaticMode::RevealHand {
                 who: ProhibitionScope::Opponents,
             },
@@ -11744,7 +11734,6 @@ mod tests {
             ),
         ] {
             face.static_abilities.push(StaticDefinition {
-                ignore_effect_escape: None,
                 mode: StaticMode::CantBeBlockedExceptBy { kind },
                 affected: Some(TargetFilter::SelfRef),
                 modifications: vec![],
@@ -11881,7 +11870,6 @@ mod tests {
         let oracle = "Creatures your opponents control lose flying and can't have or gain flying.";
         face.oracle_text = Some(oracle.to_string());
         face.static_abilities.push(StaticDefinition {
-            ignore_effect_escape: None,
             mode: StaticMode::CantHaveKeyword {
                 keyword: Keyword::Flying,
             },

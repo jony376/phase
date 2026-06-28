@@ -63,7 +63,6 @@ fn return_to_battlefield_instead_of_dying() -> ReplacementDefinition {
 /// CR 614.1c + CR 122.1: "Other creatures you control enter with an additional
 /// +1/+1 counter on them" (Kalain / Bard Class class).
 fn other_creatures_enter_with_extra_counter() -> StaticDefinition {
-    ignore_effect_escape: None,
     StaticDefinition::new(StaticMode::EntersWithAdditionalCounters {
         counter_type: CounterType::Plus1Plus1,
         count: 1,

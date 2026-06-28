@@ -16,7 +16,6 @@ pub(crate) fn lower_rule_static(
     affected: TargetFilter,
     description: &str,
 ) -> StaticDefinition {
-    ignore_effect_escape: None,
     match predicate {
         RuleStaticPredicate::CantUntap => StaticDefinition::new(StaticMode::CantUntap)
             .affected(affected)
@@ -506,7 +505,6 @@ pub(crate) fn unimplemented_conjunct_residual(
     affected: TargetFilter,
     residual_text: &str,
 ) -> StaticDefinition {
-    ignore_effect_escape: None,
     StaticDefinition::continuous()
         .affected(affected)
         .modifications(vec![ContinuousModification::GrantAbility {

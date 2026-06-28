@@ -15785,7 +15785,6 @@ mod tests {
                 ],
             };
             let def = StaticDefinition {
-                ignore_effect_escape: None,
                 mode: StaticMode::CastWithKeyword {
                     keyword: granted_kw,
                 },
@@ -22361,7 +22360,6 @@ mod tests {
                     properties: vec![],
                 });
                 obj.static_definitions = vec![StaticDefinition {
-                    ignore_effect_escape: None,
                     mode: StaticMode::CastWithKeyword { keyword: granted },
                     affected: Some(affected),
                     modifications: vec![],
@@ -24886,7 +24884,6 @@ mod tests {
                 properties: vec![],
             });
             let def = StaticDefinition {
-                ignore_effect_escape: None,
                 mode: StaticMode::CastWithKeyword {
                     keyword: granted_kw,
                 },

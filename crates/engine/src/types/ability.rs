@@ -18545,7 +18545,6 @@ mod tests {
     #[test]
     fn static_definition_roundtrip() {
         let static_def = StaticDefinition {
-            ignore_effect_escape: None,
             mode: StaticMode::Continuous,
             affected: Some(
                 TypedFilter::creature()
@@ -18842,7 +18841,6 @@ mod tests {
     fn effect_generic_effect_typed_roundtrip() {
         let effect = Effect::GenericEffect {
             static_abilities: vec![StaticDefinition {
-                ignore_effect_escape: None,
                 mode: StaticMode::Continuous,
                 affected: Some(TargetFilter::SelfRef),
                 modifications: vec![ContinuousModification::AddPower { value: 3 }],

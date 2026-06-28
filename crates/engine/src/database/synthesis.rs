@@ -3969,7 +3969,6 @@ fn build_unleash_cant_block_static(
     affected: TargetFilter,
     condition: StaticCondition,
 ) -> StaticDefinition {
-    ignore_effect_escape: None,
     // CR 702.98a: "This permanent can't block as long as it has a +1/+1 counter on
     // it." The condition is source-relative for printed Unleash and
     // recipient-relative for static grants.
@@ -7448,7 +7447,6 @@ pub fn synthesize_backup(face: &mut CardFace) {
     } else {
         Some(Effect::GenericEffect {
             static_abilities: vec![StaticDefinition {
-                ignore_effect_escape: None,
                 mode: StaticMode::Continuous,
                 affected: Some(TargetFilter::ParentTarget),
                 modifications,
@@ -18229,7 +18227,6 @@ mod sorcery_speed_invariant_tests {
     /// generic counter — the exact shape `parse_level_blocks` produces for keyword
     /// lines inside a {LEVEL} striation.
     fn level_gated_keyword_static(keyword: Keyword, minimum: u32) -> StaticDefinition {
-        ignore_effect_escape: None,
         StaticDefinition::continuous()
             .affected(TargetFilter::SelfRef)
             .condition(StaticCondition::HasCounters {

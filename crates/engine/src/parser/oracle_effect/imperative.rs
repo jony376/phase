@@ -10337,7 +10337,6 @@ pub(super) fn try_parse_attack_or_block_if_able(lower: &str) -> Option<Imperativ
 /// the layer system and `combat.rs` enforcement. Mirrors the block path's
 /// `ImperativeFamilyAst::MustBeBlocked` lowering.
 pub(super) fn must_attack_static_definition() -> StaticDefinition {
-    ignore_effect_escape: None,
     use crate::types::statics::StaticMode;
     StaticDefinition::new(StaticMode::MustAttack).modifications(vec![
         ContinuousModification::AddStaticMode {
@@ -10354,7 +10353,6 @@ pub(super) fn must_attack_static_definition() -> StaticDefinition {
 /// for transient grants — `snapshot_transient_modifications` reads only
 /// `modifications`).
 pub(super) fn must_block_static_definition() -> StaticDefinition {
-    ignore_effect_escape: None,
     use crate::types::statics::StaticMode;
     StaticDefinition::new(StaticMode::MustBlock).modifications(vec![
         ContinuousModification::AddStaticMode {

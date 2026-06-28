@@ -115,9 +115,7 @@ mod tests {
     use crate::types::statics::{CastFreeOrigin, CastFrequency, StaticMode};
 
     fn ninja_pump_static() -> StaticDefinition {
-        ignore_effect_escape: None,
         StaticDefinition {
-            ignore_effect_escape: None,
             mode: StaticMode::Continuous,
             affected: Some(TargetFilter::Typed(TypedFilter {
                 type_filters: vec![crate::types::ability::TypeFilter::Subtype(

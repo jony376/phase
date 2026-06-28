@@ -469,7 +469,6 @@ fn extra_blockers_static_definition(
     mode: StaticMode,
     text: &str,
 ) -> StaticDefinition {
-    ignore_effect_escape: None,
     if matches!(affected, TargetFilter::SelfRef) {
         StaticDefinition::new(mode)
             .affected(affected)

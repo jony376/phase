@@ -21993,7 +21993,6 @@ pub(crate) fn parse_effect_chain_ir(
 /// following sibling is exactly the shape produced by the chunk-splitter for
 /// "and it loses all other abilities" — a `ClauseIr` with `Effect::GenericEffect`
 /// carrying a single `StaticDefinition { mode: Continuous, affected:
-    ignore_effect_escape: None,
 /// Some(TargetFilter::SelfRef), modifications: [RemoveAllAbilities], condition:
 /// None }` and `duration: None`, `target: None` — prepends
 /// `ContinuousModification::RemoveAllAbilities` to the `ReturnAsAura`'s grants
@@ -31112,7 +31111,6 @@ mod tests {
                 assert!(matches!(
                     static_abilities.as_slice(),
                     [StaticDefinition {
-                        ignore_effect_escape: None,
                         mode: crate::types::statics::StaticMode::ExtraBlockers { count: Some(1) },
                         affected: Some(TargetFilter::ParentTarget),
                         ..

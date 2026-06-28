@@ -47,7 +47,6 @@ use engine::types::zones::Zone;
 /// Built directly here so the integration test does not couple to the
 /// parser's exact output shape — it asserts the casting-pipeline contract.
 fn build_eminence_static() -> StaticDefinition {
-    ignore_effect_escape: None,
     // Dragon-spell filter: subtype Dragon, controlled by You, Another.
     let dragon_filter = TargetFilter::Typed(
         TypedFilter::card()

@@ -79,7 +79,6 @@ fn create_conspiracy_object(
 /// A vanilla face-up command-zone continuous static (no extra zone designation
 /// beyond what `synthesize_conspiracy` stamps).
 fn continuous_static() -> StaticDefinition {
-    ignore_effect_escape: None,
     StaticDefinition::new(StaticMode::Continuous)
 }
 

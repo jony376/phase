@@ -65,7 +65,6 @@ fn return_to_battlefield_instead_of_dying() -> ReplacementDefinition {
 /// +1/+1 counter on them" (Kalain / Bard Class class). The `FilterProp::Another`
 /// qualifier excludes the static's own source.
 fn other_creatures_enter_with_extra_counter() -> StaticDefinition {
-    ignore_effect_escape: None,
     StaticDefinition::new(StaticMode::EntersWithAdditionalCounters {
         counter_type: CounterType::Plus1Plus1,
         count: 1,

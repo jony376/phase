@@ -3064,6 +3064,15 @@ fn distribute_shared_properties(filter: TargetFilter, shared_props: &[FilterProp
     match filter {
         TargetFilter::Typed(mut typed) => {
             for prop in shared_props {
+                if matches!(prop, FilterProp::Another)
+                    && typed.type_filters.contains(&TypeFilter::Land)
+                    && !typed
+                        .type_filters
+                        .iter()
+                        .any(|t| matches!(t, TypeFilter::Creature | TypeFilter::Permanent))
+                {
+                    continue;
+                }
                 if !typed
                     .properties
                     .iter()

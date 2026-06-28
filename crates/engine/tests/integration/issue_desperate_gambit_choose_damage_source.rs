@@ -15,6 +15,8 @@ use engine::types::game_state::{CastPaymentMode, WaitingFor};
 use engine::types::identifiers::ObjectId;
 use engine::types::mana::{ManaCost, ManaCostShard, ManaType, ManaUnit};
 use engine::types::phase::Phase;
+use rand::SeedableRng;
+use rand_chacha::ChaCha20Rng;
 
 fn desperate_gambit_mana() -> ManaCost {
     ManaCost::Cost {
@@ -61,6 +63,31 @@ fn add_mana(runner: &mut engine::game::scenario::GameRunner, mana: &[ManaType]) 
     }
 }
 
+fn finish_desperate_gambit_resolution(runner: &mut engine::game::scenario::GameRunner) {
+    for _ in 0..64 {
+        match &runner.state().waiting_for {
+            WaitingFor::CoinFlipKeepChoice { .. } => {
+                runner
+                    .act(GameAction::SelectCoinFlips {
+                        keep_indices: vec![0],
+                    })
+                    .expect("resolve coin flip keep choice");
+            }
+            WaitingFor::Priority { .. } if !runner.state().stack.is_empty() => {
+                runner
+                    .act(GameAction::PassPriority)
+                    .expect("pass priority to resolve Desperate Gambit");
+            }
+            WaitingFor::Priority { .. } => break,
+            WaitingFor::ManaPayment { .. } => {
+                runner.act(GameAction::PassPriority).expect("pay mana");
+            }
+            other => panic!("unexpected prompt finishing Desperate Gambit: {other:?}"),
+        }
+    }
+    runner.advance_until_stack_empty();
+}
+
 fn resolve_desperate_gambit_through_source_choice(
     runner: &mut engine::game::scenario::GameRunner,
     gambit: ObjectId,
@@ -95,6 +122,7 @@ fn resolve_desperate_gambit_through_source_choice(
             other => panic!("unexpected pre-source-choice prompt: {other:?}"),
         }
     }
+    finish_desperate_gambit_resolution(runner);
 }
 
 #[test]
@@ -103,8 +131,8 @@ fn desperate_gambit_oracle_parses_choose_damage_source_you_control() {
         DESPERATE_GAMBIT,
         "Desperate Gambit",
         &[],
-        &[],
         &["Instant".to_string()],
+        &[],
     );
     let spell = parsed
         .abilities
@@ -179,9 +207,9 @@ fn desperate_gambit_one_shot_shield_applies_to_chosen_source_only() {
     let source = scenario.add_creature(P0, "Damage Source", 2, 2).id();
 
     let mut runner = scenario.build();
+    runner.state_mut().rng = ChaCha20Rng::seed_from_u64(42);
     add_mana(&mut runner, &[ManaType::Red]);
     resolve_desperate_gambit_through_source_choice(&mut runner, gambit, source);
-    runner.advance_until_stack_empty();
 
     let host = runner.state().objects.get(&source).expect("source present");
     let double_shield = host.replacement_definitions.iter_unchecked().find(|s| {
@@ -213,13 +241,15 @@ fn desperate_gambit_one_shot_shield_applies_to_chosen_source_only() {
 
     if is_double {
         assert_eq!(
-            runner.state().players[P1.0 as usize].life, 14,
-            "win branch must double 3 → 6"
+            runner.state().players[P1.0 as usize].life,
+            14,
+            "win branch must double 3 → 6",
         );
     } else {
         assert_eq!(
-            runner.state().players[P1.0 as usize].life, 20,
-            "lose branch must prevent damage"
+            runner.state().players[P1.0 as usize].life,
+            20,
+            "lose branch must prevent damage",
         );
     }
 }

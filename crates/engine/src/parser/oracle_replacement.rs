@@ -4610,16 +4610,32 @@ fn parse_redirect_recipient_phrase(
 }
 
 pub(crate) fn parse_choose_damage_source_candidate(input: &str) -> Option<TargetFilter> {
-    let input = input.trim().trim_end_matches('.');
-    if let Some(filter) = parse_damage_source_subject_filter(input) {
+    let input = input.trim();
+    // CR 609.7a: interactive "Choose a source …" — only the leading clause
+    // (Desperate Gambit: "Choose a source you control. Flip a coin. …").
+    // Must NOT reuse `parse_damage_source_subject_filter`'s typed-target fallback
+    // (`parse_type_phrase`), which would misroute "choose a creature …" /
+    // "choose a creature or land" to damage-source selection.
+    let subject = input.split('.').next()?.trim().trim_end_matches('.');
+
+    if let Ok((rest, filter)) = parse_attached_host_subject(subject) {
+        if rest.trim().is_empty() {
+            return Some(filter);
+        }
+    }
+    if let Some(filter) = parse_damage_source_subject(subject) {
         return Some(filter);
     }
-    let (rest, filter) = parse_damage_history_source(input)?;
-    if rest.trim().is_empty() {
-        Some(filter)
-    } else {
-        None
+
+    let stripped = nom_primitives::parse_article
+        .parse(subject)
+        .map(|(rest, _)| rest.trim())
+        .unwrap_or(subject);
+    if matches!(stripped, "source" | "sources") {
+        return Some(TargetFilter::Any);
     }
+
+    None
 }
 
 /// Parse the damage source filter from the subject clause before "would deal".

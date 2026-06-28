@@ -11979,20 +11979,15 @@ fn try_parse_multi_target_counter_chain(
 /// dropped it (Incremental Growth / Incremental Blight class).
 fn ensure_another_on_counter_target(effect: Effect, segment: &str) -> Effect {
     let lower = segment.trim().to_lowercase();
-    let has_distinct_target = nom_on_lower(&lower, &lower, |i| {
-        value(
-            (),
-            alt((
-                tag("another target"),
-                tag("other target"),
-                tag("third target"),
-                tag("another "),
-                tag("other "),
-            )),
-        )
-        .parse(i)
-    })
-    .is_some();
+    let has_distinct_target = [
+        "another target",
+        "other target",
+        "third target",
+        "another ",
+        "other ",
+    ]
+    .iter()
+    .any(|phrase| nom_primitives::scan_contains(&lower, phrase));
     if !has_distinct_target {
         return effect;
     }

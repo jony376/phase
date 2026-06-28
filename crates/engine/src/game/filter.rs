@@ -1851,6 +1851,8 @@ fn filter_inner_for_object(
                 .last_chosen_damage_source
                 .as_ref()
                 .is_some_and(|choice| {
+                    // CR 609.7b: An effect that would prevent or replace damage from a
+                    // chosen source applies only to damage from that source.
                     choice.source_id == object_id
                         && (matches!(
                             &choice.source_filter,

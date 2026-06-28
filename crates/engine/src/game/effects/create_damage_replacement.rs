@@ -80,6 +80,8 @@ pub fn resolve(
         Some(TargetFilter::ChosenDamageSource) => {
             match state.last_chosen_damage_source.as_ref() {
                 Some(_choice) => {
+                    // CR 609.7b: Resolve the chosen damage source filter to check if
+                    // the source matches the filter.
                     let resolved = resolve_source_filter(
                         &TargetFilter::ChosenDamageSource,
                         state,

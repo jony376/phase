@@ -18,17 +18,29 @@ fn faiths_fetters_prevents_enchanted_creature_from_attacking() {
     let mut scenario = GameScenario::new();
     scenario.at_phase(Phase::PreCombatMain);
 
-    let fetters = {
-        let mut builder =
-            scenario.add_creature_from_oracle(P0, "Faith's Fetters", 0, 0, FAITHS_FETTERS);
-        builder.as_enchantment();
-        builder.with_subtypes(vec!["Aura"]);
-        builder.id()
-    };
+    let fetters = scenario
+        .add_creature(P0, "Faith's Fetters", 0, 0)
+        .as_enchantment()
+        .from_oracle_text(FAITHS_FETTERS)
+        .id();
     let bear = scenario.add_creature(P0, "Grizzly Bears", 2, 2).id();
 
     let mut runner = scenario.build();
-    attach_to(runner.state_mut(), fetters, bear).expect("Faith's Fetters must attach to the bear");
+    {
+        let fetters_obj = runner
+            .state_mut()
+            .objects
+            .get_mut(&fetters)
+            .expect("Faith's Fetters present");
+        if !fetters_obj.card_types.subtypes.iter().any(|s| s == "Aura") {
+            fetters_obj.card_types.subtypes.push("Aura".to_string());
+            fetters_obj.base_card_types = fetters_obj.card_types.clone();
+        }
+    }
+    assert!(
+        attach_to(runner.state_mut(), fetters, bear).is_some(),
+        "Faith's Fetters must attach to the bear"
+    );
 
     runner.advance_to_combat();
     let err = runner

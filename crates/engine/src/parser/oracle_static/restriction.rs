@@ -2591,16 +2591,19 @@ pub(crate) fn try_parse_ignore_effect_escape_line(
         TargetFilter::ParentTargetController
     };
 
-    let (exile_tail, ignore_tail) = if let Some(idx) = cost_lower.find(" rather than pay ") {
-        (
-            &cost_tail[..idx],
-            cost_tail[idx + " rather than pay ".len()..].trim(),
-        )
-    } else if let Some(idx) = cost_lower.find(" as though ") {
-        (&cost_tail[..idx], "")
-    } else {
-        return None;
-    };
+    let (exile_tail, ignore_tail) = cost_lower
+        .find(" rather than pay ")
+        .map(|idx| {
+            (
+                &cost_tail[..idx],
+                cost_tail[idx + " rather than pay ".len()..].trim(),
+            )
+        })
+        .or_else(|| {
+            cost_lower
+                .find(" as though ")
+                .map(|idx| (&cost_tail[..idx], ""))
+        })?;
 
     if !ignore_tail.is_empty() {
         let ignore_lower = ignore_tail.to_lowercase();

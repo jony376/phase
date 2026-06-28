@@ -2561,8 +2561,8 @@ pub(crate) fn try_parse_ignore_effect_escape_line(
 ) -> Option<crate::types::ability::IgnoreEffectEscape> {
     use crate::types::ability::{IgnoreEffectEscape, IgnoreEffectExpiration, PlayerScope};
     type VE<'a> = OracleError<'a>;
-    let tp = TextPair::new(text, &text.to_lowercase());
-    let lower = tp.lower;
+    let lower_owned = text.to_lowercase();
+    let tp = TextPair::new(text, &lower_owned);
 
     let (cost_tail, expiration) = if let Some(rest) = nom_tag_tp(&tp, "until your next turn, ") {
         (

@@ -34,7 +34,9 @@ fn morkrut_necropod_attacks_or_blocks_sacrifice_another_creature_or_land() {
         let TargetFilter::Typed(tf) = f else {
             return None;
         };
-        tf.type_filters.contains(&TypeFilter::Creature).then_some(tf)
+        tf.type_filters
+            .contains(&TypeFilter::Creature)
+            .then_some(tf)
     });
     let land_tf = filters.iter().find_map(|f| {
         let TargetFilter::Typed(tf) = f else {

@@ -2110,7 +2110,8 @@ fn definition_contains_choose_damage_source(def: &AbilityDefinition) -> bool {
 fn rewrite_oneshot_selfref_to_chosen_in_effect(effect: &mut Effect) {
     match effect {
         Effect::PreventDamage {
-            damage_source_filter, ..
+            damage_source_filter,
+            ..
         } if matches!(damage_source_filter, Some(TargetFilter::SelfRef)) => {
             *damage_source_filter = Some(TargetFilter::ChosenDamageSource);
         }

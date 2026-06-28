@@ -63,9 +63,23 @@ fn add_mana(runner: &mut engine::game::scenario::GameRunner, mana: &[ManaType]) 
     }
 }
 
-fn finish_desperate_gambit_resolution(runner: &mut engine::game::scenario::GameRunner) {
-    for _ in 0..64 {
+fn drive_desperate_gambit_resolution(
+    runner: &mut engine::game::scenario::GameRunner,
+    chosen_source: ObjectId,
+) {
+    for _ in 0..96 {
         match &runner.state().waiting_for {
+            WaitingFor::DamageSourceChoice { options, .. } => {
+                assert!(
+                    options.contains(&chosen_source),
+                    "chosen source must be offered, got options {options:?}"
+                );
+                runner
+                    .act(GameAction::ChooseDamageSource {
+                        source: chosen_source,
+                    })
+                    .expect("choose damage source");
+            }
             WaitingFor::CoinFlipKeepChoice { .. } => {
                 runner
                     .act(GameAction::SelectCoinFlips {
@@ -73,16 +87,18 @@ fn finish_desperate_gambit_resolution(runner: &mut engine::game::scenario::GameR
                     })
                     .expect("resolve coin flip keep choice");
             }
-            WaitingFor::Priority { .. } if !runner.state().stack.is_empty() => {
+            WaitingFor::ManaPayment { .. } => {
+                runner.act(GameAction::PassPriority).expect("pay mana");
+            }
+            WaitingFor::Priority { .. } => {
+                if runner.state().stack.is_empty() {
+                    break;
+                }
                 runner
                     .act(GameAction::PassPriority)
                     .expect("pass priority to resolve Desperate Gambit");
             }
-            WaitingFor::Priority { .. } => break,
-            WaitingFor::ManaPayment { .. } => {
-                runner.act(GameAction::PassPriority).expect("pay mana");
-            }
-            other => panic!("unexpected prompt finishing Desperate Gambit: {other:?}"),
+            other => panic!("unexpected prompt resolving Desperate Gambit: {other:?}"),
         }
     }
     runner.advance_until_stack_empty();
@@ -102,27 +118,7 @@ fn resolve_desperate_gambit_through_source_choice(
         })
         .expect("cast Desperate Gambit");
 
-    for _ in 0..32 {
-        match &runner.state().waiting_for {
-            WaitingFor::DamageSourceChoice { options, .. } => {
-                assert!(
-                    options.contains(&chosen_source),
-                    "chosen source must be offered, got options {options:?}"
-                );
-                runner
-                    .act(GameAction::ChooseDamageSource {
-                        source: chosen_source,
-                    })
-                    .expect("choose damage source");
-            }
-            WaitingFor::ManaPayment { .. } => {
-                runner.act(GameAction::PassPriority).expect("pay mana");
-            }
-            WaitingFor::Priority { .. } => break,
-            other => panic!("unexpected pre-source-choice prompt: {other:?}"),
-        }
-    }
-    finish_desperate_gambit_resolution(runner);
+    drive_desperate_gambit_resolution(runner, chosen_source);
 }
 
 #[test]
@@ -185,14 +181,20 @@ fn desperate_gambit_damage_source_choice_excludes_opponent_sources() {
                 runner
                     .act(GameAction::ChooseDamageSource { source: p0_source })
                     .expect("choose P0 source");
+                return;
             }
             WaitingFor::ManaPayment { .. } => {
                 runner.act(GameAction::PassPriority).expect("pay mana");
             }
-            WaitingFor::Priority { .. } => break,
+            WaitingFor::Priority { .. } => {
+                runner
+                    .act(GameAction::PassPriority)
+                    .expect("pass priority toward source choice");
+            }
             other => panic!("unexpected prompt: {other:?}"),
         }
     }
+    panic!("Desperate Gambit never prompted for damage source choice");
 }
 
 fn assert_one_shot_shield_on_source(

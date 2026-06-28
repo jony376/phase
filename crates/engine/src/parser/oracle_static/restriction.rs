@@ -2591,19 +2591,16 @@ pub(crate) fn try_parse_ignore_effect_escape_line(
         TargetFilter::ParentTargetController
     };
 
-    let (exile_tail, ignore_tail) = cost_lower
-        .find(" rather than pay ")
-        .map(|idx| {
-            (
-                &cost_tail[..idx],
-                cost_tail[idx + " rather than pay ".len()..].trim(),
-            )
-        })
-        .or_else(|| {
-            cost_lower
-                .find(" as though ")
-                .map(|idx| (&cost_tail[..idx], ""))
-        })?;
+    let (exile_tail, ignore_tail) = super::oracle_nom::bridge::split_once_on_lower(
+        cost_tail,
+        &cost_lower,
+        " rather than pay ",
+    )
+    .map(|(exile, ignore)| (exile.trim(), ignore.trim()))
+    .or_else(|| {
+        super::oracle_nom::bridge::split_once_on_lower(cost_tail, &cost_lower, " as though ")
+            .map(|(exile, _)| (exile.trim(), ""))
+    })?;
 
     if !ignore_tail.is_empty() {
         let ignore_lower = ignore_tail.to_lowercase();
@@ -2616,39 +2613,47 @@ pub(crate) fn try_parse_ignore_effect_escape_line(
     }
 
     let exile_lower = exile_tail.to_lowercase();
-    if let Some(((), after_exile)) = nom_on_lower(exile_tail, &exile_lower, |i: &str| {
-        value((), tag::<_, _, VE>("exile ")).parse(i)
-    }) {
-        let after_exile_lower = after_exile.to_lowercase();
-        let (count, after_count) = parse_number(after_exile_lower.trim())?;
-        let mut rest = after_count.trim();
-        rest = rest
-            .strip_prefix("cards ")
-            .or_else(|| rest.strip_prefix("card "))?;
-        rest = rest
-            .strip_prefix("from their graveyard")
-            .or_else(|| rest.strip_prefix("from your graveyard"))
-            .or_else(|| rest.strip_prefix("from a graveyard"))?;
-        if !rest.trim().trim_end_matches('.').is_empty() {
-            return None;
-        }
-        let filter = if nom_primitives::scan_contains(&after_exile_lower, "from your graveyard") {
-            TargetFilter::Controller
-        } else {
-            TargetFilter::ParentTargetController
-        };
-        return Some(IgnoreEffectEscape {
-            cost: AbilityCost::Exile {
-                count,
-                zone: Some(Zone::Graveyard),
-                filter: Some(filter),
-            },
-            payer,
-            expiration,
-        });
-    }
+    let (_, _, after_exile) = nom_primitives::scan_preceded(&exile_lower, |i| {
+        tag::<_, _, VE>("exile ").parse(i)
+    })?;
+    let consumed = exile_lower.len() - after_exile.len();
+    let after_exile = exile_tail[consumed..].trim_start();
 
-    None
+    let after_exile_lower = after_exile.to_lowercase();
+    let (count, filter) = nom_on_lower(after_exile, &after_exile_lower, |i| {
+        let (i, count) = preceded(space0, nom_primitives::parse_number).parse(i)?;
+        let (i, _) = alt((tag("cards "), tag("card "))).parse(i)?;
+        let (i, filter) = alt((
+            value(TargetFilter::Controller, tag("from your graveyard")),
+            value(
+                TargetFilter::ParentTargetController,
+                tag("from their graveyard"),
+            ),
+            value(
+                TargetFilter::ParentTargetController,
+                tag("from a graveyard"),
+            ),
+        ))
+        .parse(i)?;
+        let trailing = i.trim().trim_end_matches('.');
+        if !trailing.is_empty() {
+            return Err(nom::Err::Error(OracleError::new(
+                i,
+                nom::error::ErrorKind::Eof,
+            )));
+        }
+        Ok((i, (count, filter)))
+    })?;
+
+    Some(IgnoreEffectEscape {
+        cost: AbilityCost::Exile {
+            count,
+            zone: Some(Zone::Graveyard),
+            filter: Some(filter),
+        },
+        payer,
+        expiration,
+    })
 }
 
 #[cfg(test)]

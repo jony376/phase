@@ -560,16 +560,26 @@ struct BasePtSetAxes {
 /// "base " on the second noun and the optional "and toughness" conjunct are each
 /// a single combinator.
 fn parse_base_pt_axes(input: &str) -> OracleResult<'_, BasePtSetAxes> {
-    let (input, _) = tag("base power").parse(input)?;
-    let (input, toughness) =
-        opt(alt((tag(" and base toughness"), tag(" and toughness")))).parse(input)?;
-    Ok((
-        input,
-        BasePtSetAxes {
-            set_power: true,
-            set_toughness: toughness.is_some(),
-        },
+    alt((
+        map(
+            (
+                tag("base power"),
+                opt(alt((tag(" and base toughness"), tag(" and toughness")))),
+            ),
+            |(_, toughness)| BasePtSetAxes {
+                set_power: true,
+                set_toughness: toughness.is_some(),
+            },
+        ),
+        value(
+            BasePtSetAxes {
+                set_power: false,
+                set_toughness: true,
+            },
+            tag("base toughness"),
+        ),
     ))
+    .parse(input)
 }
 
 /// CR 208.1 + CR 613.4b: The dynamic-or-fixed value side of a "base power …

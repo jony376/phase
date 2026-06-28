@@ -734,7 +734,9 @@ pub(crate) fn parse_cda_quantity_with_context(
     ))
     .parse(text)
     {
-        if let Some(inner) = parse_cda_quantity_with_context(rest, ctx) {
+        if let Some(inner) = parse_cda_quantity_with_context(rest, ctx)
+            .or_else(|| parse_event_context_quantity(rest))
+        {
             return Some(QuantityExpr::Multiply {
                 factor,
                 inner: Box::new(inner),

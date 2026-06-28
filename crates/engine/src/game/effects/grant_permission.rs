@@ -1,5 +1,5 @@
 use crate::types::ability::{
-    CastingPermission, Effect, EffectError, EffectKind, PermissionGrantee, ResolvedAbility,
+    CastingPermission, Duration, Effect, EffectError, EffectKind, PermissionGrantee, ResolvedAbility,
     TargetFilter, TargetRef,
 };
 use crate::types::events::GameEvent;
@@ -39,6 +39,30 @@ pub fn resolve(
         } => (permission.clone(), target, *grantee),
         _ => return Err(EffectError::MissingParam("permission".to_string())),
     };
+
+    // CR 400.7i: Furious Rise — a fresh exile revokes play permission on cards
+    // previously exiled by the same source permanent.
+    if matches!(
+        permission,
+        CastingPermission::PlayFromExile {
+            duration: Duration::UntilPlayerExilesAnotherCardWithSource { .. },
+            ..
+        }
+    ) {
+        let source = ability.source_id;
+        for obj in state.objects.values_mut() {
+            obj.casting_permissions.retain(|p| {
+                !matches!(
+                    p,
+                    CastingPermission::PlayFromExile {
+                        duration: Duration::UntilPlayerExilesAnotherCardWithSource { .. },
+                        source_id: Some(sid),
+                        ..
+                    } if *sid == source
+                )
+            });
+        }
+    }
 
     // CR 608.2c (issue #323 class): intrinsic permission targets (`SelfRef`
     // and tracked-set anaphora) resolve from their own filter regardless of

@@ -40424,6 +40424,31 @@ mod tests {
     }
 
     #[test]
+    fn parse_play_from_exile_until_exile_another_card_with_source() {
+        let def = parse_effect_chain(
+            "You may play that card until you exile another card with this enchantment.",
+            AbilityKind::Spell,
+        );
+        assert!(
+            matches!(
+                *def.effect,
+                Effect::GrantCastingPermission {
+                    permission: CastingPermission::PlayFromExile {
+                        duration: Duration::UntilPlayerExilesAnotherCardWithSource {
+                            player: PlayerScope::Controller,
+                        },
+                        ..
+                    },
+                    target: TargetFilter::TrackedSet { .. },
+                    ..
+                }
+            ),
+            "Expected PlayFromExile(UntilPlayerExilesAnotherCardWithSource), got {:?}",
+            def.effect
+        );
+    }
+
+    #[test]
     fn parse_play_from_exile_next_turn() {
         let def = parse_effect_chain(
             "You may play that card until the end of your next turn.",

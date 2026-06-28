@@ -1014,6 +1014,12 @@ fn fmt_duration(d: &Duration) -> String {
             )
         }
         Duration::ForAsLongAs { .. } => "for as long as condition".to_string(),
+        Duration::UntilPlayerExilesAnotherCardWithSource { player } => {
+            format!(
+                "until exile another card with source ({})",
+                fmt_player_scope(player)
+            )
+        }
         Duration::Permanent => "permanent".to_string(),
     }
 }

@@ -1810,6 +1810,12 @@ pub enum Duration {
     ForAsLongAs {
         condition: StaticCondition,
     },
+    /// CR 400.7i + CR 611.2a: Furious Rise class — "until you exile another
+    /// card with [this permanent]" revokes prior play-from-exile grants from
+    /// the same source when a new card is exiled by that permanent's ability.
+    UntilPlayerExilesAnotherCardWithSource {
+        player: PlayerScope,
+    },
     Permanent,
 }
 
@@ -18713,6 +18719,9 @@ mod tests {
                 player: PlayerScope::Controller,
             },
             Duration::UntilHostLeavesPlay,
+            Duration::UntilPlayerExilesAnotherCardWithSource {
+                player: PlayerScope::Controller,
+            },
             Duration::Permanent,
         ];
         let json = serde_json::to_string(&durations).unwrap();

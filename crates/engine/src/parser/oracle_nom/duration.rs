@@ -69,8 +69,28 @@ fn parse_until_body(input: &str) -> OracleResult<'_, Duration> {
                 tag(" leaves the battlefield"),
             ),
         ),
+        parse_until_player_exiles_another_card_with_source,
     ))
     .parse(input)
+}
+
+/// CR 400.7i + CR 611.2a: "until you exile another card with ~" /
+/// "this enchantment" / "this permanent" (Furious Rise).
+fn parse_until_player_exiles_another_card_with_source(input: &str) -> OracleResult<'_, Duration> {
+    let (rest, _) = tag("you exile another card with ").parse(input)?;
+    let (rest, _) = alt((
+        tag("~"),
+        tag("this enchantment"),
+        tag("this permanent"),
+        tag("this artifact"),
+    ))
+    .parse(rest)?;
+    Ok((
+        rest,
+        Duration::UntilPlayerExilesAnotherCardWithSource {
+            player: PlayerScope::Controller,
+        },
+    ))
 }
 
 /// Alternatives after the shared "for " prefix.
@@ -447,6 +467,25 @@ mod tests {
         ] {
             let (rest, d) = parse_duration(text).unwrap();
             assert_eq!(d, Duration::UntilHostLeavesPlay, "failed for {text:?}");
+            assert_eq!(rest, "");
+        }
+    }
+
+    #[test]
+    fn test_parse_duration_until_exile_another_card_with_source() {
+        for text in [
+            "until you exile another card with this enchantment",
+            "until you exile another card with ~",
+            "until you exile another card with this permanent",
+        ] {
+            let (rest, d) = parse_duration(text).unwrap();
+            assert_eq!(
+                d,
+                Duration::UntilPlayerExilesAnotherCardWithSource {
+                    player: PlayerScope::Controller,
+                },
+                "failed for {text:?}"
+            );
             assert_eq!(rest, "");
         }
     }

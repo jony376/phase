@@ -12,6 +12,7 @@ use engine::types::ability::{
     ContinuousModification, Duration, Effect, PlayerScope, QuantityExpr, QuantityRef, TargetFilter,
     TypeFilter,
 };
+use engine::types::phase::Phase;
 use engine::types::triggers::TriggerMode;
 use engine::types::zones::Zone;
 
@@ -31,7 +32,8 @@ fn amplifire_upkeep_trigger_reveal_until_dynamic_base_pt() {
     );
     assert_eq!(parsed.triggers.len(), 1, "expected one upkeep trigger");
     let trigger = &parsed.triggers[0];
-    assert_eq!(trigger.mode, TriggerMode::Upkeep);
+    assert_eq!(trigger.mode, TriggerMode::Phase);
+    assert_eq!(trigger.phase, Some(Phase::Upkeep));
 
     let execute = trigger
         .execute

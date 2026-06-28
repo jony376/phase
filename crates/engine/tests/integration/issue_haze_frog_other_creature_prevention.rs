@@ -8,6 +8,7 @@ use engine::types::ability::{
     Effect, FilterProp, PreventionAmount, PreventionScope, TargetFilter, TypeFilter,
 };
 use engine::types::triggers::TriggerMode;
+use engine::types::zones::Zone;
 
 const HAZE_FROG_ORACLE: &str = "Flash\n\
 When this creature enters, prevent all combat damage that other creatures would deal this turn.";
@@ -17,14 +18,16 @@ fn haze_frog_etb_prevent_scopes_other_creature_sources() {
     let parsed = parse_oracle_text(
         HAZE_FROG_ORACLE,
         "Haze Frog",
-        &["Flash"],
-        &["Creature"],
-        &["Frog"],
+        &["Flash".to_string()],
+        &["Creature".to_string()],
+        &["Frog".to_string()],
     );
     let trigger = parsed
         .triggers
         .iter()
-        .find(|t| t.mode == TriggerMode::Enters)
+        .find(|t| {
+            t.mode == TriggerMode::ChangesZone && t.destination == Some(Zone::Battlefield)
+        })
         .expect("Haze Frog must have an ETB trigger");
     let execute = trigger.execute.as_ref().expect("execute");
     let Effect::PreventDamage {
@@ -45,7 +48,9 @@ fn haze_frog_etb_prevent_scopes_other_creature_sources() {
         panic!("expected Typed source filter, got {damage_source_filter:?}");
     };
     assert!(
-        tf.type_filters.iter().any(|t| matches!(t, TypeFilter::Creature)),
+        tf.type_filters
+            .iter()
+            .any(|t| matches!(t, TypeFilter::Creature)),
         "source filter must be creatures, got {:?}",
         tf.type_filters
     );

@@ -4,8 +4,8 @@ use engine::game::combat::AttackTarget;
 use engine::game::effects::attach::attach_to;
 use engine::game::scenario::{GameScenario, P0, P1};
 
-use engine::types::actions::GameAction;
 use engine::types::ability::{Effect, GameRestriction};
+use engine::types::actions::GameAction;
 use engine::types::game_state::WaitingFor;
 use engine::types::identifiers::ObjectId;
 use engine::types::phase::Phase;
@@ -75,9 +75,7 @@ fn lost_in_thought_escape_lets_enchanted_creature_attack_until_next_turn() {
         })
         .expect("begin ignore-effect activation");
 
-    let graveyard_cards: Vec<ObjectId> = runner
-        .state()
-        .players[P0.0 as usize]
+    let graveyard_cards: Vec<ObjectId> = runner.state().players[P0.0 as usize]
         .graveyard
         .iter()
         .copied()

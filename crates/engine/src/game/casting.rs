@@ -15798,6 +15798,7 @@ mod tests {
                 characteristic_defining: false,
                 description: Some("Assassin spells you cast have freerunning {B}{B}.".to_string()),
                 attack_defended: None,
+                ignore_effect_escape: None,
             };
             obj.static_definitions = vec![def].into();
         }
@@ -22371,6 +22372,7 @@ mod tests {
                     characteristic_defining: false,
                     description: None,
                     attack_defended: None,
+                    ignore_effect_escape: None,
                 }]
                 .into();
             }
@@ -24899,6 +24901,7 @@ mod tests {
                     "Instant and sorcery spells you cast have affinity for creatures.".to_string(),
                 ),
                 attack_defended: None,
+                ignore_effect_escape: None,
             };
             obj.static_definitions = vec![def].into();
         }

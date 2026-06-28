@@ -136,6 +136,7 @@ mod tests {
             characteristic_defining: false,
             description: None,
             attack_defended: None,
+            ignore_effect_escape: None,
         }
     }
 

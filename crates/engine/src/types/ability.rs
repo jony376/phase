@@ -7221,9 +7221,7 @@ pub struct IgnoreEffectEscape {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum IgnoreEffectExpiration {
     UntilEndOfTurn,
-    UntilNextTurnOf {
-        player: PlayerScope,
-    },
+    UntilNextTurnOf { player: PlayerScope },
 }
 
 // ---------------------------------------------------------------------------
@@ -18563,6 +18561,7 @@ mod tests {
             characteristic_defining: false,
             description: Some("Other creatures you control get +1/+1.".to_string()),
             attack_defended: None,
+            ignore_effect_escape: None,
         };
         let json = serde_json::to_string(&static_def).unwrap();
         let deserialized: StaticDefinition = serde_json::from_str(&json).unwrap();
@@ -18852,6 +18851,7 @@ mod tests {
                 characteristic_defining: false,
                 description: None,
                 attack_defended: None,
+                ignore_effect_escape: None,
             }],
             duration: Some(Duration::UntilEndOfTurn),
             target: None,

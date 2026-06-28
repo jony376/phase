@@ -2653,6 +2653,7 @@ mod tests {
                     "Instant and sorcery spells you cast have affinity for creatures.".to_string(),
                 ),
                 attack_defended: None,
+                ignore_effect_escape: None,
             };
             obj.static_definitions = vec![def].into();
         }

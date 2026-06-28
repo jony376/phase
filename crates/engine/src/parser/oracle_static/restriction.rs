@@ -2559,9 +2559,7 @@ pub(crate) fn try_parse_cast_free_permission(text: &str, lower: &str) -> Option<
 pub(crate) fn try_parse_ignore_effect_escape_line(
     text: &str,
 ) -> Option<crate::types::ability::IgnoreEffectEscape> {
-    use crate::types::ability::{
-        IgnoreEffectEscape, IgnoreEffectExpiration, PlayerScope, QuantityExpr,
-    };
+    use crate::types::ability::{IgnoreEffectEscape, IgnoreEffectExpiration, PlayerScope};
     type VE<'a> = OracleError<'a>;
     let tp = TextPair::new(text, &text.to_lowercase());
     let lower = tp.lower;
@@ -2570,14 +2568,14 @@ pub(crate) fn try_parse_ignore_effect_escape_line(
         (
             rest.original.trim(),
             IgnoreEffectExpiration::UntilNextTurnOf {
-                player: PlayerScope::ParentTargetController,
+                player: PlayerScope::ParentObjectTargetController,
             },
         )
     } else if let Some(rest) = nom_tag_tp(&tp, "until your next turn ") {
         (
             rest.original.trim(),
             IgnoreEffectExpiration::UntilNextTurnOf {
-                player: PlayerScope::ParentTargetController,
+                player: PlayerScope::ParentObjectTargetController,
             },
         )
     } else {
@@ -2615,9 +2613,9 @@ pub(crate) fn try_parse_ignore_effect_escape_line(
     }
 
     let exile_lower = exile_tail.to_lowercase();
-    if let Some(((), after_exile)) =
-        nom_on_lower(exile_tail, &exile_lower, |i: &str| tag::<_, _, VE>("exile ").parse(i))
-    {
+    if let Some(((), after_exile)) = nom_on_lower(exile_tail, &exile_lower, |i: &str| {
+        value((), tag::<_, _, VE>("exile ")).parse(i)
+    }) {
         let after_exile_lower = after_exile.to_lowercase();
         let (count, after_count) = parse_number(after_exile_lower.trim())?;
         let mut rest = after_count.trim();
@@ -2638,7 +2636,7 @@ pub(crate) fn try_parse_ignore_effect_escape_line(
         };
         return Some(IgnoreEffectEscape {
             cost: AbilityCost::Exile {
-                count: QuantityExpr::Fixed { value: count as i32 },
+                count,
                 zone: Some(Zone::Graveyard),
                 filter: Some(filter),
             },

@@ -16785,7 +16785,7 @@ fn lost_in_thought_ignore_effect_escape_line_parses() {
     assert!(matches!(
         escape.cost,
         AbilityCost::Exile {
-            count: crate::types::ability::QuantityExpr::Fixed { value: 3 },
+            count: 3,
             zone: Some(Zone::Graveyard),
             ..
         }

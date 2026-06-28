@@ -4608,13 +4608,18 @@ pub(crate) fn parse_choose_damage_source_candidate(input: &str) -> Option<Target
     // Must NOT reuse `parse_damage_source_subject_filter`'s typed-target fallback
     // (`parse_type_phrase`), which would misroute "choose a creature …" /
     // "choose a creature or land" to damage-source selection.
-    let mut subject = input.split('.').next()?.trim().trim_end_matches('.');
-    subject = subject
-        .strip_prefix("choose ")
-        .or_else(|| subject.strip_prefix("Choose "))
-        .unwrap_or(subject);
+    let first_clause = nom_primitives::split_once_on(input, ".")
+        .map(|(_, (before, _))| before.trim().trim_end_matches('.'))
+        .unwrap_or_else(|_| input.trim());
+    let subject = if let Ok((rest, _)) = tag::<_, _, OracleError<'_>>("choose ").parse(first_clause) {
+        rest.trim()
+    } else if let Ok((rest, _)) = tag("Choose ").parse(first_clause) {
+        rest.trim()
+    } else {
+        first_clause
+    };
     // Strip the article so "a source you control" does not treat "a" as subtype A.
-    subject = nom_primitives::parse_article
+    let subject = nom_primitives::parse_article
         .parse(subject)
         .map(|(rest, _)| rest.trim())
         .unwrap_or(subject);

@@ -7,7 +7,7 @@ use engine::game::scenario::{GameScenario, P0, P1};
 use engine::parser::oracle::parse_oracle_text;
 use engine::types::ability::{
     AbilityKind, ControllerRef, DamageModification, Effect, PreventionAmount, QuantityExpr,
-    ResolvedAbility, ShieldKind, TargetFilter, TargetRef, TypedFilter,
+    ReplacementDefinition, ResolvedAbility, ShieldKind, TargetFilter, TargetRef, TypedFilter,
 };
 use engine::types::actions::GameAction;
 use engine::types::events::GameEvent;
@@ -197,17 +197,48 @@ fn desperate_gambit_damage_source_choice_excludes_opponent_sources() {
     panic!("Desperate Gambit never prompted for damage source choice");
 }
 
+fn shield_targets_chosen_source(shield: &ReplacementDefinition, source: ObjectId) -> bool {
+    let matches_source = |filter: &TargetFilter| {
+        matches!(filter, TargetFilter::SpecificObject { id } if *id == source)
+    };
+    shield.damage_source_filter.as_ref().is_some_and(|filter| match filter {
+        TargetFilter::SpecificObject { .. } => matches_source(filter),
+        TargetFilter::And { filters } => filters.iter().any(matches_source),
+        _ => false,
+    })
+}
+
+fn shields_for_chosen_source<'a>(
+    runner: &'a engine::game::scenario::GameRunner,
+    source: ObjectId,
+) -> Vec<&'a ReplacementDefinition> {
+    let mut shields = runner
+        .state()
+        .objects
+        .get(&source)
+        .map(|obj| obj.replacement_definitions.iter_unchecked().collect::<Vec<_>>())
+        .unwrap_or_default();
+    shields.extend(
+        runner
+            .state()
+            .pending_damage_replacements
+            .iter()
+            .filter(|shield| shield_targets_chosen_source(shield, source)),
+    );
+    shields
+}
+
 fn assert_one_shot_shield_on_source(
     runner: &engine::game::scenario::GameRunner,
     source: ObjectId,
     expect_double: bool,
 ) {
-    let host = runner.state().objects.get(&source).expect("source present");
-    let double_shield = host.replacement_definitions.iter_unchecked().find(|s| {
+    let shields = shields_for_chosen_source(runner, source);
+    let double_shield = shields.iter().find(|s| {
         matches!(s.shield_kind, ShieldKind::DamageReplacementOneShot)
             && s.damage_modification == Some(DamageModification::Double)
     });
-    let prevent_shield = host.replacement_definitions.iter_unchecked().find(|s| {
+    let prevent_shield = shields.iter().find(|s| {
         matches!(
             s.shield_kind,
             ShieldKind::Prevention {
@@ -219,7 +250,7 @@ fn assert_one_shot_shield_on_source(
         assert!(
             double_shield.is_some(),
             "win branch must install double shield on chosen source, got {:?}",
-            host.replacement_definitions.as_slice()
+            shields,
         );
         assert!(
             prevent_shield.is_none(),
@@ -229,7 +260,7 @@ fn assert_one_shot_shield_on_source(
         assert!(
             prevent_shield.is_some(),
             "lose branch must install prevention shield on chosen source, got {:?}",
-            host.replacement_definitions.as_slice()
+            shields,
         );
         assert!(
             double_shield.is_none(),

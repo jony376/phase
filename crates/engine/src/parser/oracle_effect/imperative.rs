@@ -14261,6 +14261,53 @@ mod tests {
         }
     }
 
+    /// CR 609.7a + CR 705: Desperate Gambit's lose branch bare "it" must thread
+    /// `ChosenDamageSource` when the chain opens with `ChooseDamageSource`.
+    #[test]
+    fn desperate_gambit_lose_branch_threads_chosen_damage_source() {
+        use crate::parser::oracle_effect::parse_effect_chain;
+
+        fn find_flip_coin(def: &AbilityDefinition) -> Option<&Effect> {
+            if matches!(&*def.effect, Effect::FlipCoin { .. }) {
+                return Some(&def.effect);
+            }
+            def.sub_ability
+                .as_deref()
+                .and_then(find_flip_coin)
+                .or_else(|| def.else_ability.as_deref().and_then(find_flip_coin))
+        }
+
+        let text = "Choose a source you control. Flip a coin. If you win the flip, \
+            the next time that source would deal damage this turn, it deals double that damage instead. \
+            If you lose the flip, the next time it would deal damage this turn, prevent that damage.";
+        let def = parse_effect_chain(text, AbilityKind::Spell);
+        let flip = find_flip_coin(&def).expect("expected FlipCoin in chain");
+        let Effect::FlipCoin {
+            win_effect,
+            lose_effect,
+            ..
+        } = flip
+        else {
+            unreachable!();
+        };
+        let win = win_effect.as_ref().expect("win branch");
+        let lose = lose_effect.as_ref().expect("lose branch");
+        assert!(matches!(
+            &*win.effect,
+            Effect::CreateDamageReplacement {
+                source_filter: Some(TargetFilter::ChosenDamageSource),
+                ..
+            }
+        ));
+        assert!(matches!(
+            &*lose.effect,
+            Effect::PreventDamage {
+                damage_source_filter: Some(TargetFilter::ChosenDamageSource),
+                ..
+            }
+        ));
+    }
+
     /// CR 115.1c + CR 608.2c regression: "target X and put a counter on it"
     /// must NOT be split into two target slots. The "and ..." continuation
     /// is a compound action handled by `try_split_targeted_compound`, not a

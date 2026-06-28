@@ -4542,16 +4542,8 @@ fn parse_oneshot_source_filter(body: &str) -> Option<TargetFilter> {
     let (_, (subject, _)) = nom_primitives::split_once_on(body, "would deal").ok()?;
     let subject = subject.trim();
     // Bare-anaphor source references (handled by combinator dispatch, not the
-    // generic source-filter parser).
-    //
-    // TODO (known limitation, deferred): cross-sentence anaphora. In the
-    // Desperate Gambit lose-branch ("...the next time it would deal damage this
-    // turn, prevent that damage"), the bare "it" co-refers with the prior
-    // sentence's "that source" (the chosen source), so it should resolve to
-    // `ChosenDamageSource`, not `SelfRef`. Resolving that requires sentence-level
-    // anaphora tracking across the FlipCoin branches, which is a separate parser
-    // problem out of scope here. The win-branch (amount) and the activated-ability
-    // cards (Soltari/Beacon/Jade/Goblin Psychopath) are unaffected.
+    // generic source-filter parser). Cross-sentence "it" → chosen source after
+    // `ChooseDamageSource` is repaired in `lower.rs::thread_chosen_damage_source_into_oneshot_effects`.
     if let Ok((rest, _)) = alt((
         tag::<_, _, OracleError<'_>>("it"),
         tag("~"),
@@ -14644,15 +14636,25 @@ mod snapshot_tests {
 
     #[test]
     fn oneshot_prevention_sibling() {
-        // Desperate Gambit lose-branch — routes to PreventDamage.
+        // Desperate Gambit lose-branch — routes to PreventDamage. Isolated parse
+        // keeps bare "it" as SelfRef; chains with ChooseDamageSource rewrite at lower time.
         let effect = parse_oneshot_damage_replacement(
             "the next time it would deal damage this turn, prevent that damage",
         )
         .expect("must parse prevention sibling");
-        assert!(
-            matches!(effect, Effect::PreventDamage { .. }),
-            "expected PreventDamage, got {effect:?}"
-        );
+        match effect {
+            Effect::PreventDamage {
+                damage_source_filter,
+                ..
+            } => {
+                assert_eq!(
+                    damage_source_filter,
+                    Some(TargetFilter::SelfRef),
+                    "isolated one-shot keeps SelfRef until chain threading"
+                );
+            }
+            other => panic!("expected PreventDamage, got {other:?}"),
+        }
     }
 
     #[test]

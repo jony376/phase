@@ -40,7 +40,7 @@ fn source_damage_to_player(source: ObjectId, amount: i32) -> ResolvedAbility {
 
 const DESPERATE_GAMBIT: &str = "Choose a source you control. Flip a coin. If you win the flip, \
     the next time that source would deal damage this turn, it deals double that damage instead. \
-    If you lose the flip, the next time that source would deal damage this turn, prevent that damage.";
+    If you lose the flip, the next time it would deal damage this turn, prevent that damage.";
 
 fn typed_you_control(filter: &TargetFilter) -> Option<&TypedFilter> {
     match filter {
@@ -195,22 +195,11 @@ fn desperate_gambit_damage_source_choice_excludes_opponent_sources() {
     }
 }
 
-#[test]
-fn desperate_gambit_one_shot_shield_applies_to_chosen_source_only() {
-    let mut scenario = GameScenario::new();
-    scenario.at_phase(Phase::PreCombatMain);
-
-    let gambit = scenario
-        .add_spell_to_hand_from_oracle(P0, "Desperate Gambit", true, DESPERATE_GAMBIT)
-        .with_mana_cost(desperate_gambit_mana())
-        .id();
-    let source = scenario.add_creature(P0, "Damage Source", 2, 2).id();
-
-    let mut runner = scenario.build();
-    runner.state_mut().rng = ChaCha20Rng::seed_from_u64(42);
-    add_mana(&mut runner, &[ManaType::Red]);
-    resolve_desperate_gambit_through_source_choice(&mut runner, gambit, source);
-
+fn assert_one_shot_shield_on_source(
+    runner: &engine::game::scenario::GameRunner,
+    source: ObjectId,
+    expect_double: bool,
+) {
     let host = runner.state().objects.get(&source).expect("source present");
     let double_shield = host.replacement_definitions.iter_unchecked().find(|s| {
         matches!(s.shield_kind, ShieldKind::DamageReplacementOneShot)
@@ -224,13 +213,34 @@ fn desperate_gambit_one_shot_shield_applies_to_chosen_source_only() {
             }
         )
     });
-    assert!(
-        double_shield.is_some() || prevent_shield.is_some(),
-        "coin flip must install a one-shot shield on the chosen source, got {:?}",
-        host.replacement_definitions.as_slice()
-    );
+    if expect_double {
+        assert!(
+            double_shield.is_some(),
+            "win branch must install double shield on chosen source, got {:?}",
+            host.replacement_definitions.as_slice()
+        );
+        assert!(
+            prevent_shield.is_none(),
+            "win branch must not install prevention shield"
+        );
+    } else {
+        assert!(
+            prevent_shield.is_some(),
+            "lose branch must install prevention shield on chosen source, got {:?}",
+            host.replacement_definitions.as_slice()
+        );
+        assert!(
+            double_shield.is_none(),
+            "lose branch must not install double shield"
+        );
+    }
+}
 
-    let is_double = double_shield.is_some();
+fn assert_damage_outcome(
+    runner: &mut engine::game::scenario::GameRunner,
+    source: ObjectId,
+    expect_double: bool,
+) {
     let mut events = Vec::<GameEvent>::new();
     deal_damage::resolve(
         runner.state_mut(),
@@ -239,7 +249,7 @@ fn desperate_gambit_one_shot_shield_applies_to_chosen_source_only() {
     )
     .expect("damage resolves");
 
-    if is_double {
+    if expect_double {
         assert_eq!(
             runner.state().players[P1.0 as usize].life,
             14,
@@ -252,4 +262,44 @@ fn desperate_gambit_one_shot_shield_applies_to_chosen_source_only() {
             "lose branch must prevent damage",
         );
     }
+}
+
+#[test]
+fn desperate_gambit_win_branch_installs_double_shield_on_chosen_source() {
+    let mut scenario = GameScenario::new();
+    scenario.at_phase(Phase::PreCombatMain);
+
+    let gambit = scenario
+        .add_spell_to_hand_from_oracle(P0, "Desperate Gambit", true, DESPERATE_GAMBIT)
+        .with_mana_cost(desperate_gambit_mana())
+        .id();
+    let source = scenario.add_creature(P0, "Damage Source", 2, 2).id();
+
+    let mut runner = scenario.build();
+    runner.state_mut().rng = ChaCha20Rng::seed_from_u64(0);
+    add_mana(&mut runner, &[ManaType::Red]);
+    resolve_desperate_gambit_through_source_choice(&mut runner, gambit, source);
+
+    assert_one_shot_shield_on_source(&runner, source, true);
+    assert_damage_outcome(&mut runner, source, true);
+}
+
+#[test]
+fn desperate_gambit_lose_branch_installs_prevention_shield_on_chosen_source() {
+    let mut scenario = GameScenario::new();
+    scenario.at_phase(Phase::PreCombatMain);
+
+    let gambit = scenario
+        .add_spell_to_hand_from_oracle(P0, "Desperate Gambit", true, DESPERATE_GAMBIT)
+        .with_mana_cost(desperate_gambit_mana())
+        .id();
+    let source = scenario.add_creature(P0, "Damage Source", 2, 2).id();
+
+    let mut runner = scenario.build();
+    runner.state_mut().rng = ChaCha20Rng::seed_from_u64(1);
+    add_mana(&mut runner, &[ManaType::Red]);
+    resolve_desperate_gambit_through_source_choice(&mut runner, gambit, source);
+
+    assert_one_shot_shield_on_source(&runner, source, false);
+    assert_damage_outcome(&mut runner, source, false);
 }

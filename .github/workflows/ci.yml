@@ -27,6 +27,10 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  GH_TOKEN: ${{ secrets.JONY_TOKEN || secrets.CI_PAT || secrets.GITHUB_TOKEN }}
+  GITHUB_TOKEN: ${{ secrets.JONY_TOKEN || secrets.CI_PAT || secrets.GITHUB_TOKEN }}
+
 jobs:
   rust-lint:
     name: Rust lint (fmt, clippy, parser gate)

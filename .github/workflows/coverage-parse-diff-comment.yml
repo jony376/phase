@@ -36,6 +36,9 @@ jobs:
     name: Sticky parse-diff comment
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ secrets.JONY_TOKEN || secrets.CI_PAT || secrets.GITHUB_TOKEN }}
+      GITHUB_TOKEN: ${{ secrets.JONY_TOKEN || secrets.CI_PAT || secrets.GITHUB_TOKEN }}
     # Only PR-triggered CI runs produce the artifact. Skipping non-PR runs keeps
     # this job off main/merge_group entirely.
     if: github.event.workflow_run.event == 'pull_request'
@@ -50,12 +53,13 @@ jobs:
           name: parse-diff
           path: parse-diff-artifact
           run-id: ${{ github.event.workflow_run.id }}
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+          github-token: ${{ env.GH_TOKEN }}
 
       - name: Upsert sticky comment
         if: steps.dl.outcome == 'success'
         uses: actions/github-script@v7
         with:
+          github-token: ${{ env.GITHUB_TOKEN }}
           script: |
             const fs = require('fs');
             const MARKER = '<!-- coverage-parse-diff -->';

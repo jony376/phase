@@ -4546,7 +4546,7 @@ fn parse_prevent_effect(text: &str) -> Effect {
     };
 
     let damage_source_filter = parse_prevent_damage_source_filter(text, &lower)
-        .or_else(|| parse_prevent_that_would_deal_source_filter(text, lower));
+        .or_else(|| parse_prevent_that_would_deal_source_filter(text, &lower));
 
     // CR 615.11 + CR 107.3i: `amount_dynamic` (the "prevent X … where X is
     // <quantity>" override) is populated at chunk level by

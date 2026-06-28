@@ -146,7 +146,7 @@ fn haunt_payoff_trigger(effect: AbilityDefinition) -> TriggerDefinition {
     trigger
 }
 
-/// A card's ETB self-trigger: `ChangesZone` to the battlefield matching itself,
+/// CR 702.55c: A card's ETB self-trigger: `ChangesZone` to the battlefield matching itself,
 /// or the haunt creature compound "enters or the creature it haunts dies".
 /// For a haunt creature this is the haunt payoff whose effect is cloned into
 /// exile by synthesis.

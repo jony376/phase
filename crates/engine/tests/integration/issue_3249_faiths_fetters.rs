@@ -60,7 +60,7 @@ fn faiths_fetters_prevents_enchanted_creature_from_attacking() {
         aura_obj.card_types.core_types = vec![CoreType::Enchantment];
         aura_obj.card_types.subtypes = vec!["Aura".to_string()];
         aura_obj.base_card_types = aura_obj.card_types.clone();
-        aura_obj.attached_to = Some(bear.into());
+        aura_obj.attached_to = Some(bear_obj.into());
         aura_obj.timestamp = ts;
         aura_obj.static_definitions = parsed_defs.clone().into();
         aura_obj.base_static_definitions = std::sync::Arc::new(parsed_defs);
@@ -70,18 +70,13 @@ fn faiths_fetters_prevents_enchanted_creature_from_attacking() {
         .get_mut(&bear_obj)
         .unwrap()
         .attachments
-        .push(fetters);
+        .push(fetters_obj);
 
     evaluate_layers(&mut state);
 
     let mut events = Vec::new();
     assert!(
-        declare_attackers(
-            &mut state,
-            &[(bear, AttackTarget::Player(P1))],
-            &mut events,
-        )
-        .is_err(),
+        declare_attackers(&mut state, &[(bear_obj, AttackTarget::Player(P1))], &mut events).is_err(),
         "enchanted creature must be unable to attack under Faith's Fetters"
     );
 }
@@ -143,7 +138,7 @@ fn faiths_fetters_prevents_enchanted_creature_from_blocking() {
         aura_obj.card_types.core_types = vec![CoreType::Enchantment];
         aura_obj.card_types.subtypes = vec!["Aura".to_string()];
         aura_obj.base_card_types = aura_obj.card_types.clone();
-        aura_obj.attached_to = Some(bear.into());
+        aura_obj.attached_to = Some(bear_obj.into());
         aura_obj.timestamp = ts;
         aura_obj.static_definitions = parsed_defs.clone().into();
         aura_obj.base_static_definitions = std::sync::Arc::new(parsed_defs);
@@ -153,24 +148,19 @@ fn faiths_fetters_prevents_enchanted_creature_from_blocking() {
         .get_mut(&bear_obj)
         .unwrap()
         .attachments
-        .push(fetters);
+        .push(fetters_obj);
 
     evaluate_layers(&mut state);
 
     let mut events = Vec::new();
     assert!(
-        declare_attackers(
-            &mut state,
-            &[(attacker, AttackTarget::Player(P0))],
-            &mut events,
-        )
-        .is_ok(),
+        declare_attackers(&mut state, &[(attacker_obj, AttackTarget::Player(P0))], &mut events).is_ok(),
         "attacker must be able to attack P0"
     );
 
     events.clear();
     assert!(
-        declare_blockers(&mut state, &[(bear, attacker)], &mut events).is_err(),
+        declare_blockers(&mut state, &[(bear_obj, attacker_obj)], &mut events).is_err(),
         "enchanted creature must be unable to block under Faith's Fetters"
     );
 }

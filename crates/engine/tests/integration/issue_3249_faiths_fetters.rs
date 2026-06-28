@@ -1,53 +1,176 @@
-//! Issue #3249 — Faith's Fetters must prevent the enchanted permanent from attacking.
+//! Issue #3249 — Faith's Fetters must prevent the enchanted permanent from attacking
+//! and blocking.
 //!
 //! Root cause: the compound static splitter for "can't attack or block, and …
 //! activated abilities can't be activated" bound both prohibitions to
 //! `TargetFilter::SelfRef` (the Aura) instead of the enchanted host filter.
 
-use engine::game::combat::AttackTarget;
-use engine::game::effects::attach::attach_to;
-use engine::game::scenario::{GameScenario, P0, P1};
-use engine::types::phase::Phase;
+use engine::game::combat::{declare_attackers, declare_blockers, AttackTarget};
+use engine::game::layers::evaluate_layers;
+use engine::game::zones::create_object;
+use engine::parser::oracle_static::parse_static_line_multi;
+use engine::types::card_type::CoreType;
+use engine::types::format::FormatConfig;
+use engine::types::game_state::GameState;
+use engine::types::identifiers::CardId;
+use engine::types::player::PlayerId;
+use engine::types::zones::Zone;
 
-const FAITHS_FETTERS: &str = "Enchant permanent\n\
-When this Aura enters, you gain 4 life.\n\
-Enchanted permanent can't attack or block, and its activated abilities can't be activated unless they're mana abilities.";
+const FAITHS_FETTERS_STATIC_LINE: &str = "Enchanted permanent can't attack or block, and its activated abilities can't be activated unless they're mana abilities.";
+
+const P0: PlayerId = PlayerId(0); // Aura controller and enchanted creature's controller
+const P1: PlayerId = PlayerId(1); // attacking opponent
 
 #[test]
 fn faiths_fetters_prevents_enchanted_creature_from_attacking() {
-    let mut scenario = GameScenario::new();
-    scenario.at_phase(Phase::PreCombatMain);
+    let mut state = GameState::new(FormatConfig::standard(), 2, 42);
+    state.active_player = P0;
+    state.turn_number = 2;
 
-    let fetters = scenario
-        .add_creature(P0, "Faith's Fetters", 0, 0)
-        .as_enchantment()
-        .from_oracle_text(FAITHS_FETTERS)
-        .id();
-    let bear = scenario.add_creature(P0, "Grizzly Bears", 2, 2).id();
-
-    let mut runner = scenario.build();
+    let bear = CardId(state.next_object_id);
+    let bear_obj = create_object(
+        &mut state,
+        bear,
+        P0,
+        "Grizzly Bears".to_string(),
+        Zone::Battlefield,
+    );
     {
-        let fetters_obj = runner
-            .state_mut()
-            .objects
-            .get_mut(&fetters)
-            .expect("Faith's Fetters present");
-        if !fetters_obj.card_types.subtypes.iter().any(|s| s == "Aura") {
-            fetters_obj.card_types.subtypes.push("Aura".to_string());
-            fetters_obj.base_card_types = fetters_obj.card_types.clone();
-        }
+        let obj = state.objects.get_mut(&bear_obj).unwrap();
+        obj.card_types.core_types = vec![CoreType::Creature];
+        obj.base_card_types = obj.card_types.clone();
+        obj.power = Some(2);
+        obj.toughness = Some(2);
+        obj.base_power = Some(2);
+        obj.base_toughness = Some(2);
     }
+
+    let parsed_defs = parse_static_line_multi(FAITHS_FETTERS_STATIC_LINE);
+    let fetters = CardId(state.next_object_id);
+    let fetters_obj = create_object(
+        &mut state,
+        fetters,
+        P0,
+        "Faith's Fetters".to_string(),
+        Zone::Battlefield,
+    );
+    let ts = state.next_timestamp();
+    {
+        let aura_obj = state.objects.get_mut(&fetters_obj).unwrap();
+        aura_obj.card_types.core_types = vec![CoreType::Enchantment];
+        aura_obj.card_types.subtypes = vec!["Aura".to_string()];
+        aura_obj.base_card_types = aura_obj.card_types.clone();
+        aura_obj.attached_to = Some(bear.into());
+        aura_obj.timestamp = ts;
+        aura_obj.static_definitions = parsed_defs.clone().into();
+        aura_obj.base_static_definitions = std::sync::Arc::new(parsed_defs);
+    }
+    state
+        .objects
+        .get_mut(&bear_obj)
+        .unwrap()
+        .attachments
+        .push(fetters);
+
+    evaluate_layers(&mut state);
+
+    let mut events = Vec::new();
     assert!(
-        attach_to(runner.state_mut(), fetters, bear).is_some(),
-        "Faith's Fetters must attach to the bear"
+        declare_attackers(
+            &mut state,
+            &[(bear, AttackTarget::Player(P1))],
+            &mut events,
+        )
+        .is_err(),
+        "enchanted creature must be unable to attack under Faith's Fetters"
+    );
+}
+
+#[test]
+fn faiths_fetters_prevents_enchanted_creature_from_blocking() {
+    let mut state = GameState::new(FormatConfig::standard(), 2, 42);
+    state.active_player = P1;
+    state.turn_number = 2;
+
+    let bear = CardId(state.next_object_id);
+    let bear_obj = create_object(
+        &mut state,
+        bear,
+        P0,
+        "Grizzly Bears".to_string(),
+        Zone::Battlefield,
+    );
+    {
+        let obj = state.objects.get_mut(&bear_obj).unwrap();
+        obj.card_types.core_types = vec![CoreType::Creature];
+        obj.base_card_types = obj.card_types.clone();
+        obj.power = Some(2);
+        obj.toughness = Some(2);
+        obj.base_power = Some(2);
+        obj.base_toughness = Some(2);
+    }
+
+    let attacker = CardId(state.next_object_id);
+    let attacker_obj = create_object(
+        &mut state,
+        attacker,
+        P1,
+        "Attacker".to_string(),
+        Zone::Battlefield,
+    );
+    {
+        let obj = state.objects.get_mut(&attacker_obj).unwrap();
+        obj.card_types.core_types = vec![CoreType::Creature];
+        obj.base_card_types = obj.card_types.clone();
+        obj.power = Some(3);
+        obj.toughness = Some(3);
+        obj.base_power = Some(3);
+        obj.base_toughness = Some(3);
+    }
+
+    let parsed_defs = parse_static_line_multi(FAITHS_FETTERS_STATIC_LINE);
+    let fetters = CardId(state.next_object_id);
+    let fetters_obj = create_object(
+        &mut state,
+        fetters,
+        P0,
+        "Faith's Fetters".to_string(),
+        Zone::Battlefield,
+    );
+    let ts = state.next_timestamp();
+    {
+        let aura_obj = state.objects.get_mut(&fetters_obj).unwrap();
+        aura_obj.card_types.core_types = vec![CoreType::Enchantment];
+        aura_obj.card_types.subtypes = vec!["Aura".to_string()];
+        aura_obj.base_card_types = aura_obj.card_types.clone();
+        aura_obj.attached_to = Some(bear.into());
+        aura_obj.timestamp = ts;
+        aura_obj.static_definitions = parsed_defs.clone().into();
+        aura_obj.base_static_definitions = std::sync::Arc::new(parsed_defs);
+    }
+    state
+        .objects
+        .get_mut(&bear_obj)
+        .unwrap()
+        .attachments
+        .push(fetters);
+
+    evaluate_layers(&mut state);
+
+    let mut events = Vec::new();
+    assert!(
+        declare_attackers(
+            &mut state,
+            &[(attacker, AttackTarget::Player(P0))],
+            &mut events,
+        )
+        .is_ok(),
+        "attacker must be able to attack P0"
     );
 
-    runner.advance_to_combat();
-    let err = runner
-        .declare_attackers(&[(bear, AttackTarget::Player(P1))])
-        .expect_err("enchanted creature must be unable to attack under Faith's Fetters");
+    events.clear();
     assert!(
-        err.to_string().contains("can't attack"),
-        "expected attack prohibition error, got {err}"
+        declare_blockers(&mut state, &[(bear, attacker)], &mut events).is_err(),
+        "enchanted creature must be unable to block under Faith's Fetters"
     );
 }

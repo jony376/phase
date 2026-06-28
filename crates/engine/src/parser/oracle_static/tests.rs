@@ -5450,7 +5450,10 @@ fn static_enchanted_creature_doesnt_untap_if_sleep_counter() {
     )
     .unwrap();
     assert_eq!(def.mode, StaticMode::CantUntap);
-    assert!(def.condition.is_some(), "if-clause must become a static condition");
+    assert!(
+        def.condition.is_some(),
+        "if-clause must become a static condition"
+    );
 }
 
 #[test]

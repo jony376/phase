@@ -16580,6 +16580,29 @@ fn static_enchanted_creature_loses_abilities_and_cant_attack_or_block() {
 }
 
 #[test]
+fn static_enchanted_creature_cant_attack_block_or_transform() {
+    let defs = parse_static_line_multi("Enchanted creature can't attack, block, or transform.");
+    assert_eq!(defs.len(), 3, "expected three restriction statics, got {defs:?}");
+    for mode in [
+        StaticMode::CantAttack,
+        StaticMode::CantBlock,
+        StaticMode::Other("CantTransform".to_string()),
+    ] {
+        assert!(
+            defs.iter().any(|def| def.mode == mode),
+            "expected {mode:?}, got {:?}",
+            defs.iter().map(|d| &d.mode).collect::<Vec<_>>()
+        );
+    }
+    assert!(defs.iter().all(|def| {
+        def.affected
+            == Some(TargetFilter::Typed(
+                TypedFilter::creature().properties(vec![FilterProp::EnchantedBy])
+            ))
+    }));
+}
+
+#[test]
 fn static_enchanted_creature_cant_attack_or_block_uses_enchanted_subject() {
     let def = parse_static_line("Enchanted creature can't attack or block.").unwrap();
     assert_eq!(def.mode, StaticMode::CantAttackOrBlock);

@@ -614,6 +614,21 @@ pub(crate) fn parse_enchanted_equipped_predicate(
         }
     }
 
+    // CR 611.2 + CR 701.27: restriction-only enchanted/equipped predicates
+    // ("can't attack, block, or transform" — Bound by Moonsilver class). Must
+    // precede continuous-grant parsing, which would otherwise return an empty vec
+    // and let the line fall through to a SelfRef combat lock on the Aura source.
+    if let Some(modes) = parse_restriction_modes(pred_lower.trim().trim_end_matches('.')) {
+        return modes
+            .into_iter()
+            .map(|mode| {
+                StaticDefinition::new(mode)
+                    .affected(affected.clone())
+                    .description(description.to_string())
+            })
+            .collect();
+    }
+
     // --- Non-standard keyword phrasings (check before continuous grants) ---
 
     // CR 702.10: "can attack as though it had haste" → AddKeyword(Haste)

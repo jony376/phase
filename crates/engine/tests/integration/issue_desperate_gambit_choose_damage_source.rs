@@ -198,15 +198,16 @@ fn desperate_gambit_damage_source_choice_excludes_opponent_sources() {
 }
 
 fn shield_targets_chosen_source(shield: &ReplacementDefinition, source: ObjectId) -> bool {
-    shield.damage_source_filter.as_ref().is_some_and(|filter| {
-        match filter {
+    shield
+        .damage_source_filter
+        .as_ref()
+        .is_some_and(|filter| match filter {
             TargetFilter::SpecificObject { id } => *id == source,
-            TargetFilter::And { filters } => filters.iter().any(|filter| {
-                matches!(filter, TargetFilter::SpecificObject { id } if *id == source)
-            }),
+            TargetFilter::And { filters } => filters.iter().any(
+                |filter| matches!(filter, TargetFilter::SpecificObject { id } if *id == source),
+            ),
             _ => false,
-        }
-    })
+        })
 }
 
 fn shields_for_chosen_source<'a>(

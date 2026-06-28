@@ -2852,7 +2852,8 @@ fn try_parse_airbend_clause(tp: TextPair<'_>) -> Option<ParsedEffectClause> {
         }
     } else {
         Effect::ChangeZone {
-            origin: Some(Zone::Battlefield),
+            // Creatures leave the battlefield; spells leave the stack (issue #4384).
+            origin: None,
             destination: Zone::Exile,
             target,
             owner_library: false,
@@ -18209,6 +18210,12 @@ fn mana_production_with_count(
         ManaProduction::OpponentLandColors { .. } => {
             Some(ManaProduction::OpponentLandColors { count })
         }
+        ManaProduction::AnyCombinationOfObjectColors { scope, .. } => {
+            Some(ManaProduction::AnyCombinationOfObjectColors {
+                count,
+                scope: *scope,
+            })
+        }
         ManaProduction::AnyTypeProduceableBy { land_filter, .. } => {
             Some(ManaProduction::AnyTypeProduceableBy {
                 count,
@@ -22341,6 +22348,17 @@ fn parse_unless_mana_or_energy_payment(cost_str: &str) -> Option<AbilityCost> {
     Some(AbilityCost::Mana { cost })
 }
 
+/// Winternight Stories shape: primary Discard with "unless you discard a [type]"
+/// — uses `unless_filter`, not resolution `unless_pay`.
+fn is_discard_unless_you_discard_filter(before_unless: &str, after_unless: &str) -> bool {
+    tag::<_, _, OracleError<'_>>("discard")
+        .parse(before_unless.trim_start())
+        .is_ok()
+        && tag::<_, _, OracleError<'_>>("you discard ")
+            .parse(after_unless)
+            .is_ok()
+}
+
 /// CR 118.12 / CR 119.4 / CR 608.2c: Normalize the subject of a counter
 /// spell's non-mana "unless" cost to the "they" pronoun recognized by the
 /// shared non-mana cost authority (`parse_unless_they_alt_cost_chain`).
@@ -22475,6 +22493,26 @@ fn extract_resolution_unless_pay_modifier(
     if let Some((before_unless, _, after_unless_lower)) =
         nom_primitives::scan_preceded(&lower, |i| tag::<_, _, OracleError<'_>>("unless ").parse(i))
     {
+        // CR 118.12a: "unless you sacrifice/discard/exile/..." — the ability
+        // controller is the payer (Read the Runes: discard unless you sacrifice
+        // a permanent). Delegates to the trigger-side single authority.
+        // Skip when the primary effect is Discard and the alternative is also
+        // "you discard a [type]" — that shape uses `unless_filter` on the
+        // Discard effect (Winternight Stories), not `unless_pay`.
+        if !is_discard_unless_you_discard_filter(before_unless, after_unless_lower) {
+            if let Some(cost) =
+                crate::parser::oracle_trigger::parse_unless_alt_cost(after_unless_lower)
+            {
+                let cleaned = text[..before_unless.trim_end().len()].trim().to_string();
+                return (
+                    cleaned,
+                    Some(UnlessPayModifier {
+                        cost,
+                        payer: TargetFilter::Controller,
+                    }),
+                );
+            }
+        }
         if let Some(cost) = parse_unless_have_deal_damage_cost(after_unless_lower) {
             let cleaned = text[..before_unless.trim_end().len()].trim().to_string();
             return (
@@ -32020,6 +32058,63 @@ mod tests {
         ));
     }
 
+    /// CR 608.2c + CR 701.9 + CR 118.12: Read the Runes — draw X, then for each
+    /// card drawn discard unless you sacrifice a permanent.
+    #[test]
+    fn read_the_runes_draw_then_discard_unless_sacrifice_permanent() {
+        use crate::types::ability::{AbilityCost, SacrificeCost};
+
+        let def = parse_effect_chain(
+            "Draw X cards. For each card drawn this way, discard a card unless you sacrifice a permanent.",
+            AbilityKind::Spell,
+        );
+        assert!(
+            matches!(
+                &*def.effect,
+                Effect::Draw {
+                    count: QuantityExpr::Ref {
+                        qty: QuantityRef::Variable { name },
+                    },
+                    ..
+                } if name == "X"
+            ),
+            "root must be Draw(X), got {:?}",
+            def.effect
+        );
+        let sub = def
+            .sub_ability
+            .as_ref()
+            .expect("discard loop must chain after draw");
+        assert!(
+            matches!(
+                sub.repeat_for,
+                Some(QuantityExpr::Ref {
+                    qty: QuantityRef::EventContextAmount,
+                })
+            ),
+            "repeat_for must bind to cards drawn this way, got {:?}",
+            sub.repeat_for
+        );
+        assert!(
+            matches!(&*sub.effect, Effect::Discard { .. }),
+            "repeated body must discard, got {:?}",
+            sub.effect
+        );
+        let unless_pay = sub
+            .unless_pay
+            .as_ref()
+            .expect("discard must carry unless_pay sacrifice alternative");
+        assert_eq!(unless_pay.payer, TargetFilter::Controller);
+        assert!(
+            matches!(
+                &unless_pay.cost,
+                AbilityCost::Sacrifice(SacrificeCost { .. })
+            ),
+            "unless cost must be Sacrifice, got {:?}",
+            unless_pay.cost
+        );
+    }
+
     #[test]
     fn target_player_discards_their_hand_uses_target_hand_size() {
         let def = parse_effect_chain("Target player discards their hand.", AbilityKind::Spell);
@@ -36125,6 +36220,51 @@ mod tests {
             cond,
             Some(DelayedTriggerCondition::AtNextPhase { phase: Phase::End })
         );
+    }
+
+    #[test]
+    fn strip_temporal_suffix_next_cleanup_step() {
+        let (text, cond) = strip_temporal_suffix(
+            "remove a +1/+1 counter from that creature at the beginning of the next cleanup step",
+        );
+        assert_eq!(text, "remove a +1/+1 counter from that creature");
+        assert_eq!(
+            cond,
+            Some(DelayedTriggerCondition::AtNextPhase {
+                phase: Phase::Cleanup,
+            })
+        );
+    }
+
+    #[test]
+    fn bounty_of_the_hunt_schedules_cleanup_counter_removal() {
+        use crate::types::ability::AbilityKind;
+
+        let def = parse_effect_chain(
+            "Distribute three +1/+1 counters among one, two, or three target creatures. For each +1/+1 counter you put on a creature this way, remove a +1/+1 counter from that creature at the beginning of the next cleanup step.",
+            AbilityKind::Spell,
+        );
+        let sub = def
+            .sub_ability
+            .as_ref()
+            .expect("cleanup removal sub-ability");
+        match &*sub.effect {
+            Effect::CreateDelayedTrigger {
+                condition, effect, ..
+            } => {
+                assert_eq!(
+                    *condition,
+                    DelayedTriggerCondition::AtNextPhase {
+                        phase: Phase::Cleanup,
+                    }
+                );
+                match &*effect.effect {
+                    Effect::RemoveCounter { .. } => {}
+                    other => panic!("expected RemoveCounter, got {other:?}"),
+                }
+            }
+            other => panic!("expected CreateDelayedTrigger sub-ability, got {other:?}"),
+        }
     }
 
     /// CR 603.7a: #638 Arcane Denial — "the next turn's upkeep" is the
@@ -47121,9 +47261,14 @@ mod tests {
         assert_eq!(clause.multi_target, Some(MultiTargetSpec::fixed(0, 1)));
         match clause.effect {
             Effect::ChangeZone {
+                origin,
                 target: TargetFilter::Or { filters },
                 ..
             } => {
+                assert_eq!(
+                    origin, None,
+                    "single-target airbend must not pin origin to Battlefield (issue #4384)"
+                );
                 assert!(
                     filters.iter().any(|filter| matches!(
                         filter,

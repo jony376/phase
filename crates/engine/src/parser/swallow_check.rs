@@ -4278,6 +4278,11 @@ mod tests {
                 &["Instant"][..],
             ),
             (
+                "Draw X cards. For each card drawn this way, discard a card unless you sacrifice a permanent.",
+                "Read the Runes",
+                &["Instant"][..],
+            ),
+            (
                 "At the beginning of your upkeep, for each player, this enchantment deals 1 damage to that player unless they pay {B} or {3}.",
                 "Lim-Dul's Hex",
                 &["Enchantment"][..],

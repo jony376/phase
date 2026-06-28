@@ -6568,6 +6568,15 @@ mod tests {
         }
     }
 
+    /// CR 608.2c + CR 609.3: Read the Runes — "for each card drawn this way"
+    /// binds repeat count to the parent draw via `EventContextAmount`.
+    #[test]
+    fn card_drawn_this_way_uses_event_context_amount() {
+        let (rest, qty) = nom_quantity::parse_for_each_clause_ref("card drawn this way").unwrap();
+        assert!(rest.is_empty());
+        assert_eq!(qty, QuantityRef::EventContextAmount);
+    }
+
     /// CR 608.2c + CR 701.9a: "nonland card discarded this way" (Seasoned
     /// Pyromancer) must emit `FilteredTrackedSetSize` with a `[Card, NonLand]`
     /// filter, not the plain `TrackedSetSize` fallback. The filter must include

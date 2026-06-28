@@ -1564,11 +1564,19 @@ pub(super) fn parse_subject_application(
     if let Ok((after_prefix, _)) =
         tag::<_, _, OracleError<'_>>("any number of ").parse(lower.as_str())
     {
+        // CR 115.1d: Accept "any number of target X" and "any number of other
+        // target X". consumed is kept at the end of "any number of " so that
+        // target_text starts with "other target..." or "target..." and
+        // parse_target_with_ctx can add FilterProp::Another for the "other" form
+        // (Guardian of Faith: "any number of other target creatures you control").
         let consumed = lower.len() - after_prefix.len();
         let target_text = &subject[consumed..];
-        if tag::<_, _, OracleError<'_>>("target ")
-            .parse(after_prefix)
-            .is_ok()
+        if alt((
+            tag::<_, _, OracleError<'_>>("target "),
+            tag("other target "),
+        ))
+        .parse(after_prefix)
+        .is_ok()
         {
             let (filter, _) = parse_target_with_ctx(target_text, ctx);
             let mut application = subject_filter_application(filter, true)?;
@@ -6146,6 +6154,35 @@ mod tests {
         assert!(starts_with_subject_prefix(
             "any number of target creatures each get +1/+1"
         ));
+    }
+
+    #[test]
+    fn any_number_of_other_target_produces_multi_target() {
+        // CR 115.1d: Guardian of Faith — "any number of other target creatures"
+        // must produce multi_target and a filter with FilterProp::Another.
+        let mut ctx = ParseContext::default();
+        let app =
+            parse_subject_application("any number of other target creatures you control", &mut ctx)
+                .expect("should parse");
+        assert!(app.multi_target.is_some(), "multi_target must be set");
+        assert!(app.target.is_some(), "must be a targeted form");
+        if let Some(TargetFilter::Typed(ref tf)) = app.target {
+            assert!(
+                tf.properties
+                    .iter()
+                    .any(|p| matches!(p, FilterProp::Another)),
+                "filter must have FilterProp::Another for 'other'"
+            );
+        }
+    }
+
+    #[test]
+    fn any_number_of_target_without_other_still_works() {
+        // Regression: "any number of target creatures" (no "other") still parses.
+        let mut ctx = ParseContext::default();
+        let app = parse_subject_application("any number of target creatures", &mut ctx)
+            .expect("should parse");
+        assert!(app.multi_target.is_some(), "multi_target must be set");
     }
 
     // CR 115.1 + CR 115.1d: "one or more target X" variable-count subject tests.

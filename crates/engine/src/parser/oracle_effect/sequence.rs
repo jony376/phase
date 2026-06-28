@@ -6058,11 +6058,8 @@ mod tests {
             enter_with_counters: vec![],
             face_down_profile: None,
         };
-        let result = parse_followup_continuation_ast(
-            "exile them",
-            &previous,
-            &mut ParseContext::default(),
-        );
+        let result =
+            parse_followup_continuation_ast("exile them", &previous, &mut ParseContext::default());
         assert_eq!(result, Some(ContinuationAst::SearchResultClauseHandled));
     }
 
@@ -6085,11 +6082,7 @@ mod tests {
         let mut node = Some(&def);
         while let Some(d) = node {
             match &*d.effect {
-                Effect::SearchLibrary {
-                    filter,
-                    count,
-                    ..
-                } => {
+                Effect::SearchLibrary { filter, count, .. } => {
                     searches += 1;
                     assert!(
                         matches!(count, QuantityExpr::UpTo { .. }),

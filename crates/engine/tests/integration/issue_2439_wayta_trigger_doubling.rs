@@ -42,6 +42,7 @@ fn install_damage_observer(state: &mut GameState) -> engine::types::identifiers:
 
 fn install_wayta_doubler(state: &mut GameState) -> engine::types::identifiers::ObjectId {
     let StaticDefinition { mode, .. } =
+        ignore_effect_escape: None,
         parse_static_line(WAYTA_DOUBLER).expect("Wayta doubler static must parse");
     assert_eq!(
         mode,

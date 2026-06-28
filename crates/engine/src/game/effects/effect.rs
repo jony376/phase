@@ -2630,6 +2630,7 @@ mod tests {
     /// `keyword` to creatures you control, gated on a creature you control
     /// having that keyword.
     fn odric_grant_arm(keyword: Kw) -> StaticDefinition {
+        ignore_effect_escape: None,
         StaticDefinition::continuous()
             .affected(TargetFilter::Typed(
                 TypedFilter::creature().controller(ControllerRef::You),

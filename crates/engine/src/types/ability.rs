@@ -15933,6 +15933,7 @@ impl TriggerDefinition {
 /// Static ability definition with typed fields. Zero params HashMap.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StaticDefinition {
+    ignore_effect_escape: None,
     #[serde(deserialize_with = "crate::types::statics::deserialize_static_mode_fwd")]
     pub mode: StaticMode,
     #[serde(default)]
@@ -18545,6 +18546,7 @@ mod tests {
     #[test]
     fn static_definition_roundtrip() {
         let static_def = StaticDefinition {
+            ignore_effect_escape: None,
             mode: StaticMode::Continuous,
             affected: Some(
                 TypedFilter::creature()
@@ -18841,6 +18843,7 @@ mod tests {
     fn effect_generic_effect_typed_roundtrip() {
         let effect = Effect::GenericEffect {
             static_abilities: vec![StaticDefinition {
+                ignore_effect_escape: None,
                 mode: StaticMode::Continuous,
                 affected: Some(TargetFilter::SelfRef),
                 modifications: vec![ContinuousModification::AddPower { value: 3 }],

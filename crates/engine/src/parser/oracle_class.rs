@@ -325,6 +325,7 @@ fn parse_class_level_trigger(line: &str, card_name: &str, level: u8) -> Option<T
 /// Wrap a static definition's condition with ClassLevelGE.
 /// If the static already has a condition, compose with And.
 fn wrap_static_with_class_level(mut static_def: StaticDefinition, level: u8) -> StaticDefinition {
+    ignore_effect_escape: None,
     let level_cond = StaticCondition::ClassLevelGE { level };
     static_def.condition = Some(match static_def.condition.take() {
         Some(existing) => StaticCondition::And {

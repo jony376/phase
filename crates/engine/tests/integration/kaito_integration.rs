@@ -45,7 +45,9 @@ fn add_mana(runner: &mut GameRunner, player: PlayerId, color: ManaType, count: u
 
 /// Emblem static for "Ninjas you control get +1/+1".
 fn ninja_pump_static() -> StaticDefinition {
+    ignore_effect_escape: None,
     StaticDefinition {
+        ignore_effect_escape: None,
         mode: StaticMode::Continuous,
         affected: Some(TargetFilter::Typed(
             TypedFilter::creature()
@@ -69,6 +71,7 @@ fn ninja_pump_static() -> StaticDefinition {
 
 /// Kaito's compound animation static: DuringYourTurn + HasCounters(loyalty, 1).
 fn kaito_animation_static() -> StaticDefinition {
+    ignore_effect_escape: None,
     StaticDefinition::continuous()
         .affected(TargetFilter::SelfRef)
         .condition(StaticCondition::And {

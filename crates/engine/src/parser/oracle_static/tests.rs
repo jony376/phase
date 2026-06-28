@@ -7204,6 +7204,7 @@ fn static_legend_rule_defers_unparseable_scopes() {
                 !matches!(
                     parse_static_line(text),
                     Some(StaticDefinition {
+                        ignore_effect_escape: None,
                         mode: StaticMode::LegendRuleDoesntApply,
                         ..
                     })

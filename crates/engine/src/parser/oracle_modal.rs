@@ -1081,6 +1081,7 @@ fn lower_as_enters_anchor_word_modal(
         // `modifications` vector keeps layer evaluation a no-op even when
         // `ChosenLabelIs` is satisfied.
         let placeholder = crate::types::ability::StaticDefinition {
+            ignore_effect_escape: None,
             mode: crate::types::statics::StaticMode::Continuous,
             affected: Some(TargetFilter::SelfRef),
             modifications: vec![],

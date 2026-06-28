@@ -105,6 +105,7 @@ fn craft_state_with_materials(
 
 /// Parse a single oracle line and return its sole static definition.
 fn parse_cda_static(oracle: &str) -> StaticDefinition {
+    ignore_effect_escape: None,
     let parsed = parse_oracle_text(oracle, "~", &[], &artifact_creature_types(), &[]);
     assert_eq!(
         parsed.statics.len(),

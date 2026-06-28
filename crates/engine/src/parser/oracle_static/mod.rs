@@ -198,6 +198,7 @@ pub(crate) fn parse_static_line_ir(text: &str) -> Option<StaticIr> {
 
 /// Lowering: apply post-parse transforms to produce the final `StaticDefinition`.
 pub(crate) fn lower_static_ir(ir: &StaticIr) -> crate::types::ability::StaticDefinition {
+    ignore_effect_escape: None,
     let mut def = ir.definition.clone();
     shared::populate_active_zones_from_condition(&mut def);
     def

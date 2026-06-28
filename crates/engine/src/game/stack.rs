@@ -6429,6 +6429,7 @@ mod tests {
             use crate::parser::oracle_nom::condition::parse_inner_condition;
             use crate::types::ability::{StaticCondition, StaticDefinition};
             let reparse = |def: &StaticDefinition| -> StaticDefinition {
+                ignore_effect_escape: None,
                 let Some(StaticCondition::Unrecognized { text }) = def.condition.as_ref() else {
                     return def.clone();
                 };

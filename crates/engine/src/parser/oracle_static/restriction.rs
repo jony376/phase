@@ -2570,14 +2570,14 @@ pub(crate) fn try_parse_ignore_effect_escape_line(
         (
             rest.original.trim(),
             IgnoreEffectExpiration::UntilNextTurnOf {
-                player: PlayerScope::ParentTargetController,
+                player: PlayerScope::Target,
             },
         )
     } else if let Some(rest) = nom_tag_tp(&tp, "until your next turn ") {
         (
             rest.original.trim(),
             IgnoreEffectExpiration::UntilNextTurnOf {
-                player: PlayerScope::ParentTargetController,
+                player: PlayerScope::Target,
             },
         )
     } else {
@@ -2615,7 +2615,7 @@ pub(crate) fn try_parse_ignore_effect_escape_line(
     }
 
     let exile_lower = exile_tail.to_lowercase();
-    if let Some(((), after_exile)) =
+    if let Some((_, after_exile)) =
         nom_on_lower(exile_tail, &exile_lower, |i: &str| tag::<_, _, VE>("exile ").parse(i))
     {
         let after_exile_lower = after_exile.to_lowercase();
@@ -2638,7 +2638,7 @@ pub(crate) fn try_parse_ignore_effect_escape_line(
         };
         return Some(IgnoreEffectEscape {
             cost: AbilityCost::Exile {
-                count: QuantityExpr::Fixed { value: count as i32 },
+                count: count as u32,
                 zone: Some(Zone::Graveyard),
                 filter: Some(filter),
             },

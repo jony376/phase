@@ -50,6 +50,7 @@ const ANTHEM_BONUS: i32 = 1;
 /// the static whose condition re-enters `has_max_speed`.
 /// When `with_gomif` is true, `P0` also controls a Gomif-shaped permanent: a
 /// `StaticDefinition { mode: SpeedCanIncreaseBeyondFour, condition: None }`.
+    ignore_effect_escape: None,
 fn build(
     with_gomif: bool,
 ) -> (

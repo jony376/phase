@@ -1222,6 +1222,7 @@ fn append_cant_have_keyword_denials(text: &str, defs: &mut Vec<StaticDefinition>
         });
         if strips_denied {
             siblings.push(StaticDefinition {
+                ignore_effect_escape: None,
                 mode: StaticMode::CantHaveKeyword {
                     keyword: denied.clone(),
                 },

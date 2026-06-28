@@ -14639,6 +14639,7 @@ its replicate cost was paid.)\nDraw a card.";
     }
 
     fn granted_replicate_static() -> StaticDefinition {
+        ignore_effect_escape: None,
         let replicate_cost = ManaCost::Cost {
             shards: vec![],
             generic: 1,

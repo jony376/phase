@@ -3658,6 +3658,7 @@ fn life_lock_scope_from_possessor(possessor_lower: &str) -> TargetFilter {
 /// which is an instant rather than a permanent).
 fn build_life_lock_clause(scope_filter: TargetFilter) -> ParsedEffectClause {
     let make_static = |mode: StaticMode| -> StaticDefinition {
+        ignore_effect_escape: None,
         StaticDefinition::new(mode.clone())
             .affected(scope_filter.clone())
             .modifications(vec![ContinuousModification::AddStaticMode { mode }])

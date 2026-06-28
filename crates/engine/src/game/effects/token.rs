@@ -1465,6 +1465,7 @@ fn base_token_trigger_defs(spec: &TokenSpec) -> Vec<TriggerDefinition> {
 }
 
 fn normalized_token_static_definition(mut static_def: StaticDefinition) -> StaticDefinition {
+    ignore_effect_escape: None,
     for modification in &mut static_def.modifications {
         if let ContinuousModification::GrantTrigger { trigger } = modification {
             normalize_token_self_lki_trigger(trigger.as_mut());
@@ -2196,6 +2197,7 @@ fn enchanted_creature_filter() -> TargetFilter {
 /// Build a `StaticDefinition` whose `affected` is the Role's enchanted
 /// creature (CR 303.4) with the given modifications and oracle text.
 fn role_static(modifications: Vec<ContinuousModification>, description: &str) -> StaticDefinition {
+    ignore_effect_escape: None,
     StaticDefinition::continuous()
         .affected(enchanted_creature_filter())
         .modifications(modifications)

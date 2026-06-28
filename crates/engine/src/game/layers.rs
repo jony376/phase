@@ -11806,6 +11806,7 @@ mod tests {
     /// Typed{[Plan],You,Battlefield} ] }` (see
     /// `parser::oracle_nom::condition::tests::doctor_doom_disjunctive_control_condition_is_typed_not_unrecognized`).
     fn doctor_doom_static() -> StaticDefinition {
+        ignore_effect_escape: None,
         use crate::types::keywords::Keyword;
         StaticDefinition::continuous()
             .affected(TargetFilter::SelfRef)
@@ -12344,6 +12345,7 @@ mod tests {
     }
 
     fn ragost_static(ability: AbilityDefinition) -> StaticDefinition {
+        ignore_effect_escape: None,
         StaticDefinition::continuous()
             .affected(TargetFilter::Typed(
                 TypedFilter::new(TypeFilter::Artifact).controller(ControllerRef::You),

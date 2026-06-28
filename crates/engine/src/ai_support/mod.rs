@@ -2640,6 +2640,7 @@ mod tests {
                 properties: vec![],
             });
             let def = StaticDefinition {
+                ignore_effect_escape: None,
                 mode: StaticMode::CastWithKeyword { keyword: granted },
                 affected: Some(affected),
                 modifications: vec![],

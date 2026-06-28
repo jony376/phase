@@ -4611,12 +4611,14 @@ pub(crate) fn parse_choose_damage_source_candidate(input: &str) -> Option<Target
     let first_clause = nom_primitives::split_once_on(input, ".")
         .map(|(_, (before, _))| before.trim().trim_end_matches('.'))
         .unwrap_or_else(|_| input.trim());
-    let subject = if let Ok((rest, _)) = tag::<_, _, OracleError<'_>>("choose ").parse(first_clause) {
-        rest.trim()
-    } else if let Ok((rest, _)) = tag("Choose ").parse(first_clause) {
-        rest.trim()
-    } else {
-        first_clause
+    let subject = match alt((
+        preceded(tag::<_, _, OracleError<'_>>("choose "), rest),
+        preceded(tag::<_, _, OracleError<'_>>("Choose "), rest),
+    ))
+    .parse(first_clause)
+    {
+        Ok((_, rest)) => rest.trim(),
+        Err(_) => first_clause,
     };
     // Strip the article so "a source you control" does not treat "a" as subtype A.
     let subject = nom_primitives::parse_article

@@ -198,13 +198,14 @@ fn desperate_gambit_damage_source_choice_excludes_opponent_sources() {
 }
 
 fn shield_targets_chosen_source(shield: &ReplacementDefinition, source: ObjectId) -> bool {
-    let matches_source = |filter: &TargetFilter| {
-        matches!(filter, TargetFilter::SpecificObject { id } if *id == source)
-    };
-    shield.damage_source_filter.as_ref().is_some_and(|filter| match filter {
-        TargetFilter::SpecificObject { .. } => matches_source(filter),
-        TargetFilter::And { filters } => filters.iter().any(matches_source),
-        _ => false,
+    shield.damage_source_filter.as_ref().is_some_and(|filter| {
+        match filter {
+            TargetFilter::SpecificObject { id } => *id == source,
+            TargetFilter::And { filters } => filters.iter().any(|filter| {
+                matches!(filter, TargetFilter::SpecificObject { id } if *id == source)
+            }),
+            _ => false,
+        }
     })
 }
 
@@ -216,7 +217,11 @@ fn shields_for_chosen_source<'a>(
         .state()
         .objects
         .get(&source)
-        .map(|obj| obj.replacement_definitions.iter_unchecked().collect::<Vec<_>>())
+        .map(|obj| {
+            obj.replacement_definitions
+                .iter_unchecked()
+                .collect::<Vec<_>>()
+        })
         .unwrap_or_default();
     shields.extend(
         runner

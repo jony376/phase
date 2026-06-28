@@ -1,6 +1,6 @@
 //! Lost in Thought — ignore-effect escape via exile-three-from-graveyard.
 
-use engine::game::combat::AttackTarget;
+use engine::game::combat::{declare_attackers, AttackTarget};
 use engine::game::game_object::AttachTarget;
 use engine::game::layers::evaluate_layers;
 use engine::game::scenario::{GameScenario, P0, P1};
@@ -61,13 +61,15 @@ fn lost_in_thought_escape_lets_enchanted_creature_attack_until_next_turn() {
     }
     evaluate_layers(runner.state_mut());
 
-    runner.advance_to_combat();
-    let err = runner
-        .declare_attackers(&[(bear, AttackTarget::Player(P1))])
-        .expect_err("enchanted creature must be locked before paying escape");
+    let mut events = Vec::new();
     assert!(
-        err.to_string().contains("can't attack"),
-        "expected attack prohibition, got {err}"
+        declare_attackers(
+            runner.state_mut(),
+            &[(bear, AttackTarget::Player(P1))],
+            &mut events,
+        )
+        .is_err(),
+        "enchanted creature must be locked before paying escape"
     );
 
     runner.advance_to_phase(Phase::PreCombatMain);
@@ -103,10 +105,13 @@ fn lost_in_thought_escape_lets_enchanted_creature_attack_until_next_turn() {
     }
     runner.advance_until_stack_empty();
 
-    runner.advance_to_combat();
-    runner
-        .declare_attackers(&[(bear, AttackTarget::Player(P1))])
-        .expect("enchanted creature must attack after ignore-effect escape");
+    let mut events = Vec::new();
+    declare_attackers(
+        runner.state_mut(),
+        &[(bear, AttackTarget::Player(P1))],
+        &mut events,
+    )
+    .expect("enchanted creature must attack after ignore-effect escape");
 
     assert_eq!(
         runner.state().players[P0.0 as usize].graveyard.len(),

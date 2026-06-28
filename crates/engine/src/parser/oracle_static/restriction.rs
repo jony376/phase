@@ -2624,15 +2624,9 @@ pub(crate) fn try_parse_ignore_effect_escape_line(
         let (i, count) = preceded(space0, nom_primitives::parse_number).parse(i)?;
         let (i, _) = preceded(space0, alt((tag("cards "), tag("card ")))).parse(i)?;
         let (i, filter) = alt((
-            value(TargetFilter::Controller, tag("from your graveyard")),
-            value(
-                TargetFilter::ParentTargetController,
-                tag("from their graveyard"),
-            ),
-            value(
-                TargetFilter::ParentTargetController,
-                tag("from a graveyard"),
-            ),
+            value(Some(TargetFilter::Controller), tag("from your graveyard")),
+            value(None, tag("from their graveyard")),
+            value(None, tag("from a graveyard")),
         ))
         .parse(i)?;
         let trailing = i.trim().trim_end_matches('.');

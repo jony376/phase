@@ -3028,6 +3028,38 @@ fn stack_spell_filter(mut typed: TypedFilter) -> TargetFilter {
     }
 }
 
+/// CR 115.10a: Re-inject `FilterProp::Another` when the source phrase carried a
+/// leading "another"/"other" qualifier but the lowered filter omitted it
+/// (cluster 33 — Morkrut Necropod, Incremental Growth class).
+pub(crate) fn ensure_another_prefix_in_filter(text: &str, filter: &mut TargetFilter) {
+    let trimmed = text.trim_start().to_lowercase();
+    if !(trimmed.starts_with("another ") || trimmed.starts_with("other ")) {
+        return;
+    }
+    inject_another_on_creature_legs(filter);
+}
+
+fn inject_another_on_creature_legs(filter: &mut TargetFilter) {
+    match filter {
+        TargetFilter::Typed(tf) => {
+            if tf
+                .type_filters
+                .iter()
+                .any(|t| matches!(t, TypeFilter::Creature | TypeFilter::Permanent))
+                && !tf.properties.contains(&FilterProp::Another)
+            {
+                tf.properties.push(FilterProp::Another);
+            }
+        }
+        TargetFilter::Or { filters } | TargetFilter::And { filters } => {
+            for f in filters {
+                inject_another_on_creature_legs(f);
+            }
+        }
+        _ => {}
+    }
+}
+
 fn distribute_shared_properties(filter: TargetFilter, shared_props: &[FilterProp]) -> TargetFilter {
     match filter {
         TargetFilter::Typed(mut typed) => {
@@ -12514,6 +12546,62 @@ mod tests {
         } else {
             panic!("Expected Typed filter, got {filter:?}");
         }
+    }
+
+    /// CR 115.10a + CR 701.16a: Morkrut Necropod — "sacrifice another creature
+    /// or land" must carry `FilterProp::Another` on the creature disjunct only.
+    #[test]
+    fn parse_type_phrase_another_creature_or_land() {
+        let (filter, rest) = parse_type_phrase("another creature or land");
+        assert!(rest.trim().is_empty(), "remainder: '{rest}'");
+        let TargetFilter::Or { filters } = filter else {
+            panic!("expected Or filter, got {filter:?}");
+        };
+        assert_eq!(filters.len(), 2);
+        let creature = filters.iter().find(|f| {
+            matches!(
+                f,
+                TargetFilter::Typed(tf)
+                    if tf.type_filters.contains(&TypeFilter::Creature)
+            )
+        });
+        let land = filters.iter().find(|f| {
+            matches!(
+                f,
+                TargetFilter::Typed(tf) if tf.type_filters.contains(&TypeFilter::Land)
+            )
+        });
+        let creature = creature.expect("missing creature leg");
+        let land = land.expect("missing land leg");
+        let TargetFilter::Typed(creature_tf) = creature else {
+            unreachable!()
+        };
+        let TargetFilter::Typed(land_tf) = land else {
+            unreachable!()
+        };
+        assert!(
+            creature_tf.properties.contains(&FilterProp::Another),
+            "creature leg must carry Another, got {:?}",
+            creature_tf.properties
+        );
+        assert!(
+            !land_tf.properties.contains(&FilterProp::Another),
+            "land leg must not carry Another, got {:?}",
+            land_tf.properties
+        );
+    }
+
+    #[test]
+    fn ensure_another_prefix_in_filter_reinjects_on_creature_or_land() {
+        let (mut filter, _) = parse_type_phrase("creature or land");
+        ensure_another_prefix_in_filter("another creature or land", &mut filter);
+        let TargetFilter::Or { filters } = filter else {
+            panic!("expected Or, got {filter:?}");
+        };
+        let TargetFilter::Typed(creature_tf) = &filters[0] else {
+            panic!("expected creature leg");
+        };
+        assert!(creature_tf.properties.contains(&FilterProp::Another));
     }
 
     /// CR 700.9 + CR 109.4: "modified creatures you control other than ~"

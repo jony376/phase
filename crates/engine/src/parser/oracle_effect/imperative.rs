@@ -44,8 +44,8 @@ use crate::types::statics::StaticMode;
 use crate::types::zones::Zone;
 
 use super::super::oracle_target::{
-    parse_target, parse_target_with_ctx, parse_target_with_syntax, parse_type_phrase,
-    resolve_pronoun_target, TargetSyntax,
+    ensure_another_prefix_in_filter, parse_target, parse_target_with_ctx,
+    parse_target_with_syntax, parse_type_phrase, resolve_pronoun_target, TargetSyntax,
 };
 use super::super::oracle_util::{
     contains_possessive, contains_self_or_object_pronoun, parse_count_expr, parse_mana_symbols,
@@ -1214,6 +1214,7 @@ pub(super) fn parse_one_or_more_sacrifice(
         strip_article(filter_text.trim_start()).trim_end_matches('.'),
     ));
     let (mut target, remainder) = parse_type_phrase(target_text.trim());
+    ensure_another_prefix_in_filter(target_text.trim(), &mut target);
     if !remainder.trim().is_empty() || matches!(target, TargetFilter::Any) {
         return None;
     }
@@ -1237,6 +1238,7 @@ pub(super) fn parse_all_sacrifice<'a>(
     let lower = text.to_lowercase();
     let ((), rest) = nom_on_lower(text, &lower, |input| value((), tag("all ")).parse(input))?;
     let (mut target, rem) = parse_target_with_ctx(rest.trim_start(), ctx);
+    ensure_another_prefix_in_filter(rest.trim_start(), &mut target);
     if matches!(target, TargetFilter::Any) {
         return None;
     }
@@ -1351,7 +1353,8 @@ pub(super) fn parse_targeted_action_ast(
         } else if ctx.subject.is_some() && is_bare_object_pronoun(target_text.trim()) {
             resolve_it_pronoun(ctx)
         } else {
-            let (target, _rem) = parse_target_with_ctx(&target_text, ctx);
+            let (mut target, _rem) = parse_target_with_ctx(&target_text, ctx);
+            ensure_another_prefix_in_filter(&target_text, &mut target);
             #[cfg(debug_assertions)]
             assert_no_compound_remainder(_rem, text);
             target
@@ -11759,6 +11762,40 @@ mod tests {
             },
             other => panic!("expected Effect::Sacrifice, got {other:?}"),
         }
+    }
+
+    /// CR 115.10a + CR 701.16a: Morkrut Necropod — "sacrifice another creature
+    /// or land" must scope the creature disjunct with `FilterProp::Another`.
+    #[test]
+    fn parse_sacrifice_another_creature_or_land_carries_another() {
+        let text = "sacrifice another creature or land";
+        let lower = text.to_lowercase();
+        let mut ctx = ParseContext {
+            actor: Some(ControllerRef::You),
+            ..Default::default()
+        };
+        let result =
+            parse_targeted_action_ast(text, &lower, &mut ctx).expect("sacrifice should parse");
+        let Effect::Sacrifice { target, .. } = lower_targeted_action_ast(result) else {
+            panic!("expected Sacrifice");
+        };
+        let TargetFilter::Or { filters } = target else {
+            panic!("expected Or sacrifice target, got {target:?}");
+        };
+        let creature_tf = filters.iter().find_map(|f| {
+            let TargetFilter::Typed(tf) = f else {
+                return None;
+            };
+            tf.type_filters.contains(&TypeFilter::Creature).then_some(tf)
+        });
+        let land_tf = filters.iter().find_map(|f| {
+            let TargetFilter::Typed(tf) = f else {
+                return None;
+            };
+            tf.type_filters.contains(&TypeFilter::Land).then_some(tf)
+        });
+        assert!(creature_tf.expect("creature leg").properties.contains(&FilterProp::Another));
+        assert!(!land_tf.expect("land leg").properties.contains(&FilterProp::Another));
     }
 
     #[test]

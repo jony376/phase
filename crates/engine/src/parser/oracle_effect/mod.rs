@@ -11972,6 +11972,59 @@ fn try_parse_multi_target_counter_chain(
     })
 }
 
+/// CR 115.4 + CR 601.2c: Bare counter-chain continuations re-invoke
+/// `try_parse_put_counter` on `put {segment}`; when the segment still says
+/// "another target" / "other target" / "third target", belt-and-suspenders
+/// re-inject `FilterProp::Another` in case the type-phrase recovery path
+/// dropped it (Incremental Growth / Incremental Blight class).
+fn ensure_another_on_counter_target(effect: Effect, segment: &str) -> Effect {
+    let lower = segment.trim().to_lowercase();
+    let has_distinct_target = nom_on_lower(&lower, &lower, |i| {
+        value((), alt((
+            tag("another target"),
+            tag("other target"),
+            tag("third target"),
+            tag("another "),
+            tag("other "),
+        )))
+        .parse(i)
+    })
+    .is_some();
+    if !has_distinct_target {
+        return effect;
+    }
+    match effect {
+        Effect::PutCounter {
+            counter_type,
+            count,
+            target,
+        } => Effect::PutCounter {
+            counter_type,
+            count,
+            target: ensure_another_target_filter(target),
+        },
+        other => other,
+    }
+}
+
+fn ensure_another_target_filter(filter: TargetFilter) -> TargetFilter {
+    match filter {
+        TargetFilter::Typed(mut tf) => {
+            if !tf.properties.contains(&FilterProp::Another) {
+                tf.properties.push(FilterProp::Another);
+            }
+            TargetFilter::Typed(tf)
+        }
+        TargetFilter::Or { filters } => TargetFilter::Or {
+            filters: filters
+                .into_iter()
+                .map(ensure_another_target_filter)
+                .collect(),
+        },
+        other => other,
+    }
+}
+
 fn parse_bare_counter_continuation<'a>(
     text: &'a str,
     ctx: &mut ParseContext,
@@ -11982,6 +12035,7 @@ fn parse_bare_counter_continuation<'a>(
         counter::try_parse_put_counter(&reparsed_lower, &reparsed_text, ctx)?;
     let consumed = reparsed_text.len().checked_sub(remainder.len())?;
     let text_consumed = consumed.checked_sub("put ".len())?;
+    let effect = ensure_another_on_counter_target(effect, text);
     Some((effect, &text[text_consumed..], multi_target))
 }
 
@@ -24735,6 +24789,32 @@ mod tests {
         def.sub_ability.as_deref()
     }
 
+    fn assert_plus_counter_node(
+        def: &AbilityDefinition,
+        count: i32,
+        another: bool,
+    ) -> Option<&AbilityDefinition> {
+        match def.effect.as_ref() {
+            Effect::PutCounter {
+                counter_type,
+                count: QuantityExpr::Fixed { value },
+                target,
+            } => {
+                assert_eq!(*counter_type, CounterType::Plus1Plus1);
+                assert_eq!(*value, count);
+                let tf = typed_leg(target).expect("counter target should be typed");
+                assert!(has_type(tf, TypeFilter::Creature));
+                assert_eq!(
+                    tf.properties.contains(&FilterProp::Another),
+                    another,
+                    "unexpected Another property on {tf:?}",
+                );
+            }
+            other => panic!("expected PutCounter, got {other:?}"),
+        }
+        def.sub_ability.as_deref()
+    }
+
     /// Issue #943: comma-separated counter placements with bare count-led
     /// continuations inherit the `put` verb and stay as ordered sub-abilities.
     #[test]
@@ -24747,7 +24827,22 @@ mod tests {
         let second = assert_minus_counter_node(&def, 1, false).expect("second counter node");
         let third = assert_minus_counter_node(second, 2, true).expect("third counter node");
         assert!(
-            assert_minus_counter_node(third, 3, false).is_none(),
+            assert_minus_counter_node(third, 3, true).is_none(),
+            "counter chain should contain exactly three nodes",
+        );
+    }
+
+    #[test]
+    fn incremental_growth_plus_counter_chain() {
+        let def = parse_effect_chain(
+            "Put a +1/+1 counter on target creature, two +1/+1 counters on another target creature, and three +1/+1 counters on a third target creature.",
+            AbilityKind::Spell,
+        );
+
+        let second = assert_plus_counter_node(&def, 1, false).expect("second counter node");
+        let third = assert_plus_counter_node(second, 2, true).expect("third counter node");
+        assert!(
+            assert_plus_counter_node(third, 3, true).is_none(),
             "counter chain should contain exactly three nodes",
         );
     }

@@ -43,7 +43,7 @@ fn lost_in_thought_escape_lets_enchanted_creature_attack_until_next_turn() {
     let lit = scenario
         .add_creature(P0, "Lost in Thought", 0, 0)
         .as_enchantment()
-        .with_subtypes(vec!["Aura".to_string()])
+        .with_subtypes(vec!["Aura"])
         .from_oracle_text(LOST_IN_THOUGHT)
         .id();
     let bear = scenario.add_creature(P0, "Grizzly Bears", 2, 2).id();

@@ -12439,6 +12439,7 @@ fn can_pay_ability_cost_now(
 fn player_may_begin_activating(
     state: &GameState,
     player: PlayerId,
+    source_id: ObjectId,
     source_controller: PlayerId,
     activator_filter: Option<&PlayerFilter>,
 ) -> bool {
@@ -12448,7 +12449,10 @@ fn player_may_begin_activating(
         Some(PlayerFilter::Opponent) => {
             super::players::is_opponent(state, source_controller, player)
         }
-        // Activator permission is only modeled for controller / all / opponent today.
+        Some(PlayerFilter::ParentObjectTargetController) => {
+            super::ability_utils::attached_host_controller(state, source_id)
+                .is_some_and(|host_controller| player == host_controller)
+        }
         Some(_) => player == source_controller,
     }
 }
@@ -12469,6 +12473,7 @@ pub fn can_activate_ability_now(
     if !player_may_begin_activating(
         state,
         player,
+        source_id,
         obj.controller,
         ability_def.activator_filter.as_ref(),
     ) {
@@ -12712,6 +12717,7 @@ pub fn handle_activate_ability(
     if !player_may_begin_activating(
         state,
         player,
+        source_id,
         obj.controller,
         ability_def.activator_filter.as_ref(),
     ) {

@@ -9212,7 +9212,7 @@ pub fn synthesize_all(face: &mut CardFace) {
 pub fn synthesize_ignore_effect_escape(face: &mut CardFace) {
     use crate::types::ability::{
         AbilityDefinition, AbilityKind, Effect, GameRestriction, IgnoreEffectExpiration,
-        RestrictionExpiry,
+        PlayerFilter, RestrictionExpiry, TargetFilter,
     };
     use crate::types::identifiers::ObjectId;
     use crate::types::player::PlayerId;
@@ -9245,20 +9245,27 @@ pub fn synthesize_ignore_effect_escape(face: &mut CardFace) {
         },
     };
 
-    face.abilities.push(
-        AbilityDefinition::new(
-            AbilityKind::Activated,
-            Effect::AddRestriction {
-                restriction: GameRestriction::StaticSourceIgnored {
-                    source: ObjectId(0),
-                    for_player: PlayerId(0),
-                    expiry,
-                },
+    let activator_filter = match escape.payer {
+        TargetFilter::ParentTargetController => Some(PlayerFilter::ParentObjectTargetController),
+        TargetFilter::Player => Some(PlayerFilter::All),
+        TargetFilter::ScopedPlayer => Some(PlayerFilter::Controller),
+        _ => None,
+    };
+
+    let mut ability = AbilityDefinition::new(
+        AbilityKind::Activated,
+        Effect::AddRestriction {
+            restriction: GameRestriction::StaticSourceIgnored {
+                source: ObjectId(0),
+                for_player: PlayerId(0),
+                expiry,
             },
-        )
-        .cost(escape.cost)
-        .description("Ignore this effect".to_string()),
-    );
+        },
+    )
+    .cost(escape.cost)
+    .description("Ignore this effect".to_string());
+    ability.activator_filter = activator_filter;
+    face.abilities.push(ability);
 }
 
 /// CR 702.176a: Synthesize Impending's battlefield static and end-step trigger.

@@ -449,6 +449,19 @@ pub fn build_target_slots_labelled(
     Ok((acc.slots, acc.labels))
 }
 
+/// CR 301.5 + CR 303.4: Controller of the permanent or player an Aura/Equipment
+/// is attached to. Used when "its controller" anaphors on an attached source
+/// have no explicit parent-target slot (Lost in Thought ignore-effect escape).
+pub fn attached_host_controller(state: &GameState, source_id: ObjectId) -> Option<PlayerId> {
+    let host = state.objects.get(&source_id)?.attached_to?;
+    match host {
+        super::game_object::AttachTarget::Object(id) => {
+            state.objects.get(&id).map(|obj| obj.controller)
+        }
+        super::game_object::AttachTarget::Player(player) => Some(player),
+    }
+}
+
 /// CR 109.4 + CR 608.2c: Resolve the controller of an ability's first parent target.
 ///
 /// This is the canonical lookup for `ControllerRef::ParentTargetController` and
@@ -491,6 +504,7 @@ pub fn parent_target_controller(ability: &ResolvedAbility, state: &GameState) ->
         .effect_context_object
         .as_ref()
         .map(|snapshot| snapshot.lki.controller)
+        .or_else(|| attached_host_controller(state, ability.source_id))
 }
 
 /// CR 108.3 + CR 608.2c: Resolve the owner of an ability's first parent target.
@@ -10121,6 +10135,51 @@ mod tests {
             parent_target_owner(&ability, &state),
             Some(PlayerId(1)),
             "effect_context_object must supply the parent owner when targets are empty"
+        );
+    }
+
+    /// CR 301.5 + CR 303.4: Aura abilities whose payer is the enchanted
+    /// permanent's controller resolve via the attached host when no target slot
+    /// is bound (Lost in Thought ignore-effect escape).
+    #[test]
+    fn parent_target_controller_falls_back_to_attached_host_controller() {
+        use crate::game::game_object::AttachTarget;
+        use crate::game::zones::create_object;
+        use crate::types::card_type::CoreType;
+        use crate::types::identifiers::CardId;
+        use crate::types::zones::Zone;
+
+        let mut state = GameState::new_two_player(42);
+        let host = create_object(
+            &mut state,
+            CardId(1),
+            PlayerId(1),
+            "Enchanted Bear".to_string(),
+            Zone::Battlefield,
+        );
+        let aura = create_object(
+            &mut state,
+            CardId(2),
+            PlayerId(0),
+            "Lost in Thought".to_string(),
+            Zone::Battlefield,
+        );
+        {
+            let aura_obj = state.objects.get_mut(&aura).unwrap();
+            aura_obj.card_types.core_types = vec![CoreType::Enchantment];
+            aura_obj.attached_to = Some(AttachTarget::Object(host));
+        }
+
+        let ability = make_simple_ability(vec![], aura);
+        assert_eq!(
+            parent_target_controller(&ability, &state),
+            Some(PlayerId(1)),
+            "attached host controller must back parent-target anaphors on auras"
+        );
+        assert_eq!(
+            attached_host_controller(&state, aura),
+            Some(PlayerId(1)),
+            "attached host controller must read the enchanted permanent's controller"
         );
     }
 

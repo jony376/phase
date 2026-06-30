@@ -20,11 +20,7 @@ const LOST_IN_THOUGHT: &str = "Enchant creature\n\
 Enchanted creature can't attack or block, and its activated abilities can't be activated.\n\
 Until your next turn, its controller may exile three cards from their graveyard as though ~ were not on the battlefield.";
 
-fn attach_aura_to_creature(
-    runner: &mut GameRunner,
-    aura: ObjectId,
-    creature: ObjectId,
-) {
+fn attach_aura_to_creature(runner: &mut GameRunner, aura: ObjectId, creature: ObjectId) {
     let state = runner.state_mut();
     let aura_obj = state.objects.get_mut(&aura).unwrap();
     if !aura_obj.card_types.subtypes.iter().any(|s| s == "Aura") {
@@ -32,7 +28,12 @@ fn attach_aura_to_creature(
         aura_obj.base_card_types = aura_obj.card_types.clone();
     }
     aura_obj.attached_to = Some(AttachTarget::Object(creature));
-    state.objects.get_mut(&creature).unwrap().attachments.push(aura);
+    state
+        .objects
+        .get_mut(&creature)
+        .unwrap()
+        .attachments
+        .push(aura);
     evaluate_layers(state);
 }
 
@@ -55,17 +56,18 @@ fn ignore_ability_index(runner: &GameRunner, aura: ObjectId) -> usize {
         .expect("synthesized ignore-effect activated ability")
 }
 
-fn pay_exile_three_from_graveyard(
-    runner: &mut GameRunner,
-    payer: PlayerId,
-) -> Result<(), String> {
+fn pay_exile_three_from_graveyard(runner: &mut GameRunner, payer: PlayerId) -> Result<(), String> {
     let graveyard_cards: Vec<ObjectId> = runner.state().players[payer.0 as usize]
         .graveyard
         .iter()
         .copied()
         .take(3)
         .collect();
-    assert_eq!(graveyard_cards.len(), 3, "payer needs three graveyard cards");
+    assert_eq!(
+        graveyard_cards.len(),
+        3,
+        "payer needs three graveyard cards"
+    );
 
     match &runner.state().waiting_for {
         WaitingFor::PayCost {

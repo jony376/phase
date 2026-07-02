@@ -1,5 +1,5 @@
-//! Regression for Skullscorch: the targeted player may have the source deal
-//! damage instead of discarding two cards at random.
+//! Regression for issue #4921: Skullscorch's targeted player may have the source
+//! deal damage instead of discarding two cards at random.
 //!
 //! https://github.com/phase-rs/phase/issues/4921
 
@@ -14,20 +14,6 @@ use engine::types::phase::Phase;
 
 const SKULLSCORCH_ORACLE: &str =
     "Target player discards two cards at random unless that player has Skullscorch deal 4 damage to them.";
-
-fn add_mana(runner: &mut engine::game::scenario::GameRunner, mana: &[ManaType]) {
-    let dummy = ObjectId(0);
-    let pool = &mut runner
-        .state_mut()
-        .players
-        .iter_mut()
-        .find(|p| p.id == P0)
-        .unwrap()
-        .mana_pool;
-    for m in mana {
-        pool.add(ManaUnit::new(*m, dummy, false, vec![]));
-    }
-}
 
 fn cast_skullscorch_to_unless_prompt(
     runner: &mut engine::game::scenario::GameRunner,
@@ -75,6 +61,13 @@ fn setup_at_unless_prompt() -> engine::game::scenario::GameRunner {
     let mut scenario = GameScenario::new();
     scenario.at_phase(Phase::PreCombatMain);
     scenario.with_cards_in_hand(P1, &["Hand Card A", "Hand Card B", "Hand Card C"]);
+    scenario.with_mana_pool(
+        P0,
+        vec![
+            ManaUnit::new(ManaType::Black, ObjectId(0), false, vec![]),
+            ManaUnit::new(ManaType::Black, ObjectId(0), false, vec![]),
+        ],
+    );
 
     let skullscorch = scenario
         .add_spell_to_hand_from_oracle(P0, "Skullscorch", true, SKULLSCORCH_ORACLE)
@@ -85,7 +78,6 @@ fn setup_at_unless_prompt() -> engine::game::scenario::GameRunner {
         .id();
 
     let mut runner = scenario.build();
-    add_mana(&mut runner, &[ManaType::Black, ManaType::Black]);
     cast_skullscorch_to_unless_prompt(&mut runner, skullscorch);
     runner
 }
@@ -110,13 +102,7 @@ fn skullscorch_declined_unless_payment_discards_two_cards() {
         "declining the unless cost must discard two cards at random"
     );
     assert_eq!(
-        runner
-            .state()
-            .players
-            .iter()
-            .find(|p| p.id == P1)
-            .unwrap()
-            .life,
+        runner.state().players[P1.0 as usize].life,
         20,
         "declining the unless cost must not deal damage"
     );
@@ -133,13 +119,7 @@ fn skullscorch_paid_unless_payment_deals_damage_and_spares_hand() {
     runner.advance_until_stack_empty();
 
     assert_eq!(
-        runner
-            .state()
-            .players
-            .iter()
-            .find(|p| p.id == P1)
-            .unwrap()
-            .life,
+        runner.state().players[P1.0 as usize].life,
         16,
         "paying the unless cost must have Skullscorch deal 4 damage to the targeted player"
     );

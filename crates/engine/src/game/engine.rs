@@ -219,8 +219,16 @@ pub(super) fn apply_action_boundary_with_stack_limit(
     state.last_effect_counts_by_player.clear();
     state.exiled_from_hand_this_resolution = 0;
     state.die_result_this_resolution = None;
+    state.consumed_before_priority_trigger_events.clear();
     check_actor_authorization(state, actor, &action)?;
-    let mut result = apply_action(state, actor, action, stack_resolution_limit)?;
+    let mut result = match apply_action(state, actor, action, stack_resolution_limit) {
+        Ok(result) => result,
+        Err(err) => {
+            state.consumed_before_priority_trigger_events.clear();
+            return Err(err);
+        }
+    };
+    state.consumed_before_priority_trigger_events.clear();
     reconcile_terminal_result(state, &mut result);
     bump_state_revision(state);
     sync_waiting_for(state, &result.waiting_for);
@@ -340,15 +348,46 @@ fn reconcile_terminal_result(state: &mut GameState, result: &mut ActionResult) {
         let priors: Vec<std::sync::Arc<GameState>> =
             state.loop_detect_ring.iter().cloned().collect();
         let cur = crate::analysis::resource::ResourceVector::snapshot(state);
-        // Carry the matching cycle's `delta` out of `find_map` alongside the winner so
+        // Carry the matching cycle's `delta` out of the scan alongside the winner so
         // the ∞ producer below can name the loop's unbounded axes without recomputing.
-        if let Some((winner, delta)) = priors.iter().find_map(|prior| {
+        // INDEXED scan (not `find_map`) so the matched prior's ring index `k` is known:
+        // the m9 controller-non-dip and R5-B2 faller-simultaneity checks consume the
+        // SAME `frames[k..] ++ live` per-resolution window. On a candidate winner that
+        // fails either seam gate, continue scanning older priors (fail-safe).
+        if let Some((winner, delta)) = priors.iter().enumerate().find_map(|(k, prior)| {
             let delta = crate::analysis::resource::ResourceVector::delta(
                 &crate::analysis::resource::ResourceVector::snapshot(prior),
                 &cur,
             );
-            crate::analysis::loop_check::live_mandatory_loop_winner(prior, state, &delta)
-                .map(|winner| (winner, delta))
+            let winner =
+                crate::analysis::loop_check::live_mandatory_loop_winner(prior, state, &delta)?;
+            // The matched window: the prior frame at `k`, every subsequent ring frame,
+            // then the live state — all per-resolution, no gaps (a non-sampling beat
+            // clears the ring, so a confirmed window is gap-free).
+            let mut frames: Vec<&GameState> = priors[k..].iter().map(|p| p.as_ref()).collect();
+            frames.push(state);
+            // CR 704.5a + CR 104.4a (m9): the winner (sole non-faller) must never dip
+            // across the window — a transient intra-cycle dip a net-delta check cannot
+            // see would kill it before the extrapolated win.
+            if !crate::analysis::loop_check::winner_life_never_dips(&frames, winner) {
+                return None;
+            }
+            // CR 704.3 + CR 800.4a + CR 104.2a (R5-B2): with ≥2 fallers, require
+            // pairwise-equal faller life at every frame so all cross lethal in ONE SBA
+            // batch (the first elimination is terminal — nothing past it is modeled).
+            let fallers: Vec<crate::types::player::PlayerId> = state
+                .players
+                .iter()
+                .filter(|p| !p.is_eliminated)
+                .map(|p| p.id)
+                .filter(|p| delta.life.get(p).copied().unwrap_or(0) < 0)
+                .collect();
+            if fallers.len() >= 2
+                && !crate::analysis::loop_check::fallers_lives_pairwise_equal(&frames, &fallers)
+            {
+                return None;
+            }
+            Some((winner, delta))
         }) {
             // CR 732.5: shortcut ONLY a loop NO living player can break. The gate runs
             // ONCE after find_map (not per prior). At the per-beat drive this is the
@@ -390,12 +429,14 @@ fn remember_public_reveals(state: &mut GameState, events: &[GameEvent]) {
 /// - `Concede` self-authenticates via its own `player_id` field — but we still
 ///   require it to match `actor` so a player cannot concede someone else on
 ///   their behalf (CR 104.3a).
-/// - **Preference actions** (SetPhaseStops, SetAutoPass, CancelAutoPass) are
-///   per-player UI settings. They have no CR semantics, mutate only the
-///   submitter's own preference slot, and may legitimately fire at any time —
-///   e.g. the human toggles a phase stop while the AI holds priority. The
-///   downstream handlers route by `actor`, so any seat may set its own
-///   preferences regardless of `WaitingFor`.
+/// - **Preference actions** (SetPhaseStops, CancelAutoPass) are per-player UI
+///   settings. They have no CR semantics, mutate only the submitter's own
+///   preference slot, and may legitimately fire at any time — e.g. the human
+///   toggles a phase stop while the AI holds priority. The downstream handlers
+///   route by `actor`, so any seat may set its own preferences regardless of
+///   `WaitingFor`. `SetAutoPass` is deliberately NOT exempt: its handler
+///   stores the mode for the `WaitingFor::Priority` player and immediately
+///   passes that priority, so it must come from the authorized submitter.
 fn check_actor_authorization(
     state: &GameState,
     actor: PlayerId,
@@ -666,13 +707,19 @@ fn active_until_stack_empty_requester(state: &GameState) -> Option<PlayerId> {
 }
 
 fn priority_player_has_meaningful_action(state: &GameState) -> bool {
-    let mut probe = state.clone();
-    probe.auto_pass.clear();
+    let mut probe_state = state.clone();
+    probe_state.auto_pass.clear();
+    super::layers::flush_layers(&mut probe_state);
+    let player = match probe_state.waiting_for {
+        WaitingFor::Priority { player } => player,
+        _ => probe_state.priority_player,
+    };
+    let probe = super::casting::PriorityCastProbe::from_flushed_state(probe_state, player);
     // The probe always has `waiting_for == Priority` at both call sites, so the
     // flat priority-action path is byte-identical to what `legal_actions` yielded
     // — it drops only the unused spell-cost object-walk and grouped-map build.
-    let actions = crate::ai_support::flat_priority_actions(&probe);
-    crate::ai_support::has_meaningful_priority_action(&probe, &actions)
+    let actions = crate::ai_support::flat_priority_actions_with_probe(probe.state(), Some(&probe));
+    crate::ai_support::has_meaningful_priority_action(probe.state(), &actions)
 }
 
 /// CR 732.5: no player can be forced to keep looping if ANY of them could take an
@@ -688,12 +735,15 @@ fn priority_player_has_meaningful_action(state: &GameState) -> bool {
 /// fail-safe toward the status quo, never a wrong win.
 fn no_living_player_has_meaningful_priority_action(state: &GameState) -> bool {
     state.players.iter().filter(|p| !p.is_eliminated).all(|p| {
-        let mut probe = state.clone();
-        probe.auto_pass.clear();
-        probe.priority_player = p.id;
-        probe.waiting_for = WaitingFor::Priority { player: p.id };
-        let actions = crate::ai_support::legal_actions(&probe);
-        !crate::ai_support::has_meaningful_priority_action(&probe, &actions)
+        let mut probe_state = state.clone();
+        probe_state.auto_pass.clear();
+        probe_state.priority_player = p.id;
+        probe_state.waiting_for = WaitingFor::Priority { player: p.id };
+        super::layers::flush_layers(&mut probe_state);
+        let probe = super::casting::PriorityCastProbe::from_flushed_state(probe_state, p.id);
+        let actions =
+            crate::ai_support::flat_priority_actions_with_probe(probe.state(), Some(&probe));
+        !crate::ai_support::has_meaningful_priority_action(probe.state(), &actions)
     })
 }
 
@@ -2216,6 +2266,32 @@ fn apply_action(
         )?,
         (
             WaitingFor::ActivationCostOneOfChoice {
+                player,
+                pending_cast,
+                ..
+            },
+            GameAction::CancelCast,
+        ) => engine_casting::cancel_pending_cast(state, *player, pending_cast, &mut events),
+        // CR 601.2b + CR 701.4a: player chose the creature type for a pre-choice
+        // behold cost; record it and resume behold payment.
+        (
+            WaitingFor::CostTypeChoice {
+                player,
+                options,
+                pending_cast,
+                ..
+            },
+            GameAction::ChooseOption { choice },
+        ) => casting_costs::handle_cost_type_choice(
+            state,
+            *player,
+            *pending_cast.clone(),
+            options,
+            &choice,
+            &mut events,
+        )?,
+        (
+            WaitingFor::CostTypeChoice {
                 player,
                 pending_cast,
                 ..
@@ -3924,7 +4000,7 @@ fn apply_action(
         (
             WaitingFor::CastOffer {
                 player,
-                kind: CastOfferKind::Miracle { object_id, .. },
+                kind: CastOfferKind::Miracle { object_id, cost },
             },
             GameAction::CastSpellAsMiracle {
                 object_id: action_obj,
@@ -3939,12 +4015,17 @@ fn apply_action(
             }
             let p = *player;
             let obj = action_obj;
+            // CR 702.94a + CR 608.2g: forward the cost latched at offer-enqueue as
+            // the sole cost authority — live keywords are not re-read (the granting
+            // source may have left the battlefield, CR 608.2b).
+            let latched_cost = Some(cost.clone());
             super::casting::handle_cast_spell_as_miracle_with_payment_mode(
                 state,
                 p,
                 obj,
                 card_id,
                 payment_mode,
+                latched_cost,
                 &mut events,
             )?
         }
@@ -5152,6 +5233,26 @@ fn record_exile_play_permission(state: &mut GameState, source: Option<ObjectId>)
     state.exile_play_permissions_used.insert(source_id);
 }
 
+/// CR 305.1 + CR 116.2a + CR 401.5: Consume the per-turn slot when a
+/// `OncePerTurn` `TopOfLibraryCastPermission { play_mode: Play }` authorizes a
+/// land play from the library. Playing a land is a special action (CR 305.1,
+/// CR 116.2a) — not a spell cast — so CR 601.2a does not apply here; CR 401.5
+/// governs top-of-library visibility during the special action. Receives the
+/// pre-captured `(src_id, frequency)` that was resolved BEFORE the zone change
+/// — `top_of_library_permission_source` reads `library.front()`, which no
+/// longer points to the played land after the land is delivered to the
+/// battlefield. `Unlimited` permissions (Future Sight, Bolas's Citadel) do not
+/// spend a slot.
+fn record_top_of_library_land_permission(
+    state: &mut GameState,
+    src_id: ObjectId,
+    frequency: crate::types::statics::CastFrequency,
+) {
+    if matches!(frequency, crate::types::statics::CastFrequency::OncePerTurn) {
+        state.top_of_library_cast_permissions_used.insert(src_id);
+    }
+}
+
 fn mark_land_played_from_zone(state: &mut GameState, object_id: ObjectId, zone: Zone) {
     if let Some(obj) = state.objects.get_mut(&object_id) {
         obj.played_from_zone = Some(zone);
@@ -5262,12 +5363,37 @@ fn handle_play_land(
 
     // CR 401.5 + CR 305.1: Check top of library for
     // `TopOfLibraryCastPermission { play_mode: Play }` (Future Sight,
-    // Bolas's Citadel, Magus of the Future). The helper already gates on
-    // "front of library + play-mode permission + filter match + is a land,"
-    // so we only need to confirm it points at the caller's object_id.
-    let in_library_with_permission =
-        super::casting::top_of_library_land_playable_by_permission(state, player)
-            .is_some_and(|(top_id, _)| top_id == object_id);
+    // Bolas's Citadel, Magus of the Future, The Fourth Doctor).
+    //
+    // IMPORTANT: capture (src_id, frequency) HERE — before the zone change.
+    // `top_of_library_permission_source` reads `library.front()`, which will
+    // point to the next card once the land is delivered to the battlefield.
+    // Recording in the post-delivery epilogue would always see the wrong top
+    // card and silently skip the once-per-turn slot, allowing a OncePerTurn
+    // permission to be reused indefinitely. CR 305.1 + CR 116.2a + CR 401.5:
+    // land play is a special action, not a spell cast (CR 601.2a does not apply).
+    let library_permission_src: Option<(ObjectId, crate::types::statics::CastFrequency)> =
+        super::casting::top_of_library_permission_source(
+            state,
+            player,
+            Some(crate::types::ability::CardPlayMode::Play),
+        )
+        .and_then(|(top_id, src_id, frequency, _)| {
+            if top_id != object_id {
+                return None;
+            }
+            // CR 305.1: only land cards qualify for the Play-permission path.
+            let obj = state.objects.get(&top_id)?;
+            if !obj
+                .card_types
+                .core_types
+                .contains(&crate::types::card_type::CoreType::Land)
+            {
+                return None;
+            }
+            Some((src_id, frequency))
+        });
+    let in_library_with_permission = library_permission_src.is_some();
     let exile_permission_source = if state.exile.contains(&object_id) {
         super::casting::exile_lands_playable_by_permission(state, player)
             .iter()
@@ -5507,6 +5633,14 @@ fn handle_play_land(
                     record_land_played_from_zone(state, player, object_id, origin_zone);
                     record_graveyard_play_permission(state, gy_permission_source, object_id);
                     record_exile_play_permission(state, exile_permission_source);
+                    // CR 305.1 + CR 116.2a + CR 401.5: consume the once-per-turn
+                    // library play slot using the pre-captured source (land play is
+                    // a special action per CR 305.1/116.2a; CR 401.5 top-of-library
+                    // visibility closes after the action; library.front() now points
+                    // to the next card, not the played land).
+                    if let Some((src_id, frequency)) = library_permission_src {
+                        record_top_of_library_land_permission(state, src_id, frequency);
+                    }
                     if let Some(p) = state.players.iter_mut().find(|p| p.id == player) {
                         p.lands_played_this_turn += 1;
                     }
@@ -5535,6 +5669,14 @@ fn handle_play_land(
             // CR 604.2: Record once-per-turn graveyard play permission usage.
             record_graveyard_play_permission(state, gy_permission_source, object_id);
             record_exile_play_permission(state, exile_permission_source);
+            // CR 305.1 + CR 116.2a + CR 401.5: consume the once-per-turn library
+            // play slot using the pre-captured source (land play is a special
+            // action per CR 305.1/116.2a; CR 401.5 top-of-library visibility
+            // closes after the action; library.front() now points to the next
+            // card, not the played land).
+            if let Some((src_id, frequency)) = library_permission_src {
+                record_top_of_library_land_permission(state, src_id, frequency);
+            }
             if let Some(p) = state.players.iter_mut().find(|p| p.id == player) {
                 p.lands_played_this_turn += 1;
             }
@@ -5558,6 +5700,14 @@ fn handle_play_land(
     // CR 604.2: Record once-per-turn graveyard play permission usage.
     record_graveyard_play_permission(state, gy_permission_source, object_id);
     record_exile_play_permission(state, exile_permission_source);
+    // CR 305.1 + CR 116.2a + CR 401.5: consume the once-per-turn library play
+    // slot using the pre-captured source (land play is a special action per
+    // CR 305.1/116.2a; CR 401.5 top-of-library visibility closes after the
+    // action; library.front() now points to the next card, not the played
+    // land — post-delivery re-lookup would fail).
+    if let Some((src_id, frequency)) = library_permission_src {
+        record_top_of_library_land_permission(state, src_id, frequency);
+    }
     let player_data = state
         .players
         .iter_mut()

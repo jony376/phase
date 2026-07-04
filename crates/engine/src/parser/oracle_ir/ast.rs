@@ -244,7 +244,10 @@ pub(crate) enum ContinuationAst {
     /// CR 707.10c: "You may choose new targets for the copy/copies." after a
     /// CopySpell (possibly wrapped in a CreateDelayedTrigger) — patches
     /// `retarget = MayChooseNewTargets` on the inner Effect::CopySpell.
-    CopyMayRetarget,
+    /// `all_copies` is the plural "the copies" form: it patches every copy the
+    /// source ability makes (Increasing Vengeance's primary + conditional
+    /// second copy), where the singular "the copy" form binds only the nearest.
+    CopyMayRetarget { all_copies: bool },
     /// "create a ... token and suspect it" → chain Suspect { target: LastCreated }
     SuspectLastCreated,
     /// CR 701.15a + CR 701.15b: "The token(s) (is|are) goaded [duration]" after token
@@ -259,6 +262,12 @@ pub(crate) enum ContinuationAst {
     /// CR 701.19c: "It can't be regenerated" / "They can't be regenerated" — sets
     /// `cant_regenerate: true` on the preceding Destroy/DestroyAll effect.
     CantRegenerate,
+    /// CR 120.4a: "Excess damage is dealt to that creature's controller instead."
+    /// — sets `excess = Some(ExcessRecipient::TargetController)` on the preceding
+    /// `Effect::DealDamage` (Flame Spill, Gandalf's Sanction, Ravenous
+    /// Tyrannosaurus). The conditional / trample-gated form (Ram Through) is NOT
+    /// recognized and lowers to `Effect::Unimplemented` instead.
+    ExcessDamageToController,
     /// "Choose one/N of them" / "An opponent chooses one/N of those cards" after a ChangeZone
     /// to exile → ChooseFromZone { count, zone: Exile, chooser }.
     ChooseFromExile {

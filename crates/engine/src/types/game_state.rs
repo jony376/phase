@@ -28,6 +28,7 @@ use super::match_config::{MatchConfig, MatchPhase, MatchScore};
 use super::phase::Phase;
 use super::player::{Player, PlayerCounterKind, PlayerId};
 use super::proposed_event::{CopyTokenSpec, ProposedEvent, ReplacementId, TokenSpec};
+use super::replacements::ReplacementEvent;
 use super::zones::EtbTapState;
 use super::zones::{ExileCostSourceZone, Zone};
 
@@ -243,6 +244,15 @@ pub struct LKISnapshot {
     /// `tapped = false`.
     #[serde(default)]
     pub tapped: bool,
+    /// CR 701.60b + CR 608.2c: Suspected status as it last existed in the public
+    /// zone. Suspected is a battlefield-only status reset on any zone change
+    /// (`GameObject::is_suspected` clears when the object moves), so a cost-paid
+    /// look-back ("the sacrificed creature was suspected" — Agency Coroner) must
+    /// read this captured value via `FilterProp::Suspected` (LKI). The snapshot
+    /// is taken at cost payment, before the sacrifice zone-change resets the flag.
+    /// `#[serde(default)]` ⇒ pre-existing saved states deserialize to `false`.
+    #[serde(default)]
+    pub is_suspected: bool,
 }
 
 /// CR 106.3 + CR 601.2h: Snapshot of the source of one mana spent to cast a spell.
@@ -513,6 +523,14 @@ pub struct ZoneChangeRecord {
     /// within the same turn for batched trigger replay guards (issue #3866).
     #[serde(default)]
     pub turn_zone_change_index: usize,
+    /// CR 701.60b + CR 608.2c: Suspected status as of the zone change. Suspected
+    /// is a battlefield-only status reset on any zone change, so a cost-paid
+    /// look-back ("the sacrificed creature was suspected" — Agency Coroner)
+    /// evaluated via the LKI snapshot synthesized in
+    /// `matches_target_filter_on_lki_snapshot` must read this captured value.
+    /// `#[serde(default)]` ⇒ pre-existing saved states deserialize to `false`.
+    #[serde(default)]
+    pub is_suspected: bool,
 }
 
 /// CR 506.4 / CR 508.1k / CR 509.1g / CR 509.1h: Combat role snapshot for an
@@ -615,6 +633,7 @@ impl ZoneChangeRecord {
             attached_to: None,
             entered_incarnation: None,
             turn_zone_change_index: 0,
+            is_suspected: false,
         }
     }
 }
@@ -3975,6 +3994,18 @@ pub enum WaitingFor {
         costs: Vec<AbilityCost>,
         pending_cast: Box<PendingCast>,
     },
+    /// CR 601.2b + CR 701.4a: The player must choose a value (creature type for
+    /// Celestial Reunion) as part of paying a `Behold { type_choice: Some(_) }`
+    /// additional cost, before the behold selection. The chosen value is written
+    /// as a `ChosenAttribute` on the spell object; cost payment then resumes the
+    /// behold step. `options` is the feasible set (types with >= count beholdable
+    /// creatures), so an unpayable type is never offered.
+    CostTypeChoice {
+        player: PlayerId,
+        choice_type: crate::types::ability::ChoiceType,
+        options: Vec<String>,
+        pending_cast: Box<PendingCast>,
+    },
     /// Blight N — player must choose one creature to put N -1/-1 counters on as cost.
     BlightChoice {
         player: PlayerId,
@@ -4123,7 +4154,7 @@ pub enum WaitingFor {
         /// `state.last_vote_ballots`. Append-only; the lifecycle matches
         /// `last_zone_changed_ids` (cleared at chain depth 0).
         #[serde(default)]
-        ballots: im::Vector<(PlayerId, u8)>,
+        ballots: im::Vector<(PlayerId, u32)>,
         /// CR 701.38: Per-choice sub-effects. `per_choice_effect[i]` resolves
         /// once for each vote tallied against `options[i]`. Carried on the
         /// WaitingFor so the resolver chain doesn't need to re-find the source
@@ -4145,16 +4176,39 @@ pub enum WaitingFor {
         /// authorized to submit the next `ChooseOption`.
         actor: VoteActor,
         /// CR 701.38a: How the completed tally maps to effects (the
-        /// strict-majority/tie outcome of `Threshold` is card-defined, not a
+        /// top-tally/tie outcome of `TopVotes` is card-defined, not a
         /// CR subrule). Carried on the WaitingFor (not re-derived from the
         /// source ability) so the final `resolve_tally` can branch between
-        /// per-vote fan-out (`VoteTally::PerVote`) and single-outcome
-        /// Will-of-the-council resolution (`VoteTally::Threshold`) once the
-        /// voter queue empties.
+        /// per-vote fan-out (`VoteTally::PerVote`) and Will-of-the-council
+        /// winner resolution (`VoteTally::TopVotes`) once the voter queue
+        /// empties. `TopVotes` itself resolves either a single winner
+        /// (`TieResolution::Breaker`) or every tied winner
+        /// (`TieResolution::AllTied`, multi-outcome).
         /// Defaults to `PerVote` so pre-existing serialized vote states
         /// deserialize unchanged.
         #[serde(default)]
         tally_mode: super::ability::VoteTally,
+        /// CR 701.38b: For object-pool votes (`VoteSubject::Objects` —
+        /// Council's Judgment, Prime Minister's Cabinet Room), the candidate
+        /// objects enumerated at resolution. Parallel to `options` /
+        /// `option_labels`: a ballot `(PlayerId, u8)` indexes into this vector.
+        /// Empty for named votes; ballots there carry the `options` index.
+        #[serde(default)]
+        candidate_objects: im::Vector<ObjectId>,
+        /// CR 701.38b + CR 608.2c: For object-pool votes, the per-winner
+        /// outcome template (e.g. single-target Exile). `resolve_top_votes_tally`
+        /// resolves it once per winning object with that object injected as the
+        /// single target. `None` for named votes (which use `per_choice_effect`).
+        #[serde(default)]
+        outcome_template: Option<Box<super::ability::AbilityDefinition>>,
+        /// Card-defined: whether this vote is public (`Open`) or secret
+        /// (`Secret` — Truth or Consequences). Under `Secret`, per-ballot
+        /// `VoteCast` events are suppressed and `filter_state_for_viewer`
+        /// scrubs running tallies/ballots until the simultaneous reveal.
+        /// Defaults to `Open` so pre-existing serialized states deserialize
+        /// unchanged.
+        #[serde(default)]
+        visibility: super::ability::VoteVisibility,
     },
     /// CR 700.3 + CR 700.3a + CR 101.4: A subject is partitioning their own
     /// objects into two piles for an `Effect::SeparateIntoPiles`. `pile_a`
@@ -4653,6 +4707,7 @@ impl WaitingFor {
             WaitingFor::SpecializeColor { .. } => "SpecializeColor",
             WaitingFor::PayCost { .. } => "PayCost",
             WaitingFor::ActivationCostOneOfChoice { .. } => "ActivationCostOneOfChoice",
+            WaitingFor::CostTypeChoice { .. } => "CostTypeChoice",
             WaitingFor::BlightChoice { .. } => "BlightChoice",
             WaitingFor::PayManaAbilityMana { .. } => "PayManaAbilityMana",
             WaitingFor::ChooseManaColor { .. } => "ChooseManaColor",
@@ -4779,6 +4834,7 @@ impl WaitingFor {
             | WaitingFor::SpecializeColor { player, .. }
             | WaitingFor::PayCost { player, .. }
             | WaitingFor::ActivationCostOneOfChoice { player, .. }
+            | WaitingFor::CostTypeChoice { player, .. }
             | WaitingFor::BlightChoice { player, .. }
             | WaitingFor::PayManaAbilityMana { player, .. }
             | WaitingFor::ChooseManaColor { player, .. }
@@ -4884,6 +4940,7 @@ impl WaitingFor {
             | WaitingFor::SpliceOffer { pending_cast, .. }
             | WaitingFor::DefilerPayment { pending_cast, .. }
             | WaitingFor::ActivationCostOneOfChoice { pending_cast, .. }
+            | WaitingFor::CostTypeChoice { pending_cast, .. }
             | WaitingFor::BlightChoice { pending_cast, .. }
             | WaitingFor::HarmonizeTapChoice { pending_cast, .. } => Some(pending_cast),
             WaitingFor::PayCost { resume, .. } => match resume {
@@ -4916,6 +4973,7 @@ impl WaitingFor {
             | WaitingFor::SpliceOffer { pending_cast, .. }
             | WaitingFor::DefilerPayment { pending_cast, .. }
             | WaitingFor::ActivationCostOneOfChoice { pending_cast, .. }
+            | WaitingFor::CostTypeChoice { pending_cast, .. }
             | WaitingFor::BlightChoice { pending_cast, .. }
             | WaitingFor::HarmonizeTapChoice { pending_cast, .. } => Some(pending_cast),
             WaitingFor::PayCost { resume, .. } => match resume {
@@ -5268,12 +5326,16 @@ pub enum CastingVariant {
     /// paying the spell's mana cost. Unlike Sneak, Web-slinging grants no
     /// special timing permission and has no enter-attacking placement rule.
     WebSlinging { returned_creature: ObjectId },
-    /// CR 702.94a: Cast from hand via Miracle's alternative cost after revealing
-    /// the card as the first card drawn this turn. The granting keyword carries
-    /// the miracle mana cost, which `prepare_spell_cast_with_variant_override`
-    /// substitutes for the printed mana cost. The keyword's `ManaCost` payload
-    /// is read at preparation time rather than stored here because
-    /// `prepare_spell_cast` already reads `obj.keywords` for analogous paths.
+    /// CR 702.94a + CR 608.2g: Cast from hand via Miracle's alternative cost after
+    /// revealing the card as the first card drawn this turn. This is a UNIT variant;
+    /// the concrete miracle cost is NOT re-read from live keywords at cast time.
+    /// Instead it is latched at offer-enqueue on `CastOfferKind::Miracle.cost` (a
+    /// concrete `ManaCost::Cost` resolved by `draw.rs`) and threaded through
+    /// `handle_cast_spell_as_miracle_with_payment_mode` →
+    /// `prepare_spell_cast_with_variant_override_inner(latched_alt_cost)`. This
+    /// preserves the offered cost even if the granting source (e.g. Aminatou) has
+    /// left the battlefield between reveal-accept and trigger resolution
+    /// (CR 608.2b last-known-information).
     Miracle,
     /// CR 702.35a: Cast from exile via Madness after the discard replacement
     /// exiled the card and its madness triggered ability resolved.
@@ -5731,6 +5793,41 @@ pub struct TriggerIndex {
     pub unclassified: smallvec::SmallVec<[ObjectId; 4]>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ReplacementIndexEntry {
+    pub id: ReplacementId,
+    pub ordinal: usize,
+}
+
+/// CR 614.1: Derived candidate pre-filter for replacement effects. The index is
+/// an optional acceleration over the legacy active-replacement scan: it stores
+/// only `ReplacementId`s plus their legacy scan ordinal, never replacement
+/// definitions, so consults re-read live object state and preserve CR 616 order.
+#[derive(Debug, PartialEq, Eq)]
+pub struct ReplacementIndex {
+    pub initialized: bool,
+    pub dirty: bool,
+    pub pipeline_active: bool,
+    pub by_event: im::HashMap<ReplacementEvent, im::Vector<ReplacementIndexEntry>>,
+}
+
+impl Default for ReplacementIndex {
+    fn default() -> Self {
+        Self {
+            initialized: false,
+            dirty: true,
+            pipeline_active: false,
+            by_event: im::HashMap::new(),
+        }
+    }
+}
+
+impl Clone for ReplacementIndex {
+    fn clone(&self) -> Self {
+        Self::default()
+    }
+}
+
 /// CR 611.2 + CR 613.1: Candidate pre-filter for `for_each_static_effect_source`.
 /// Holds the ids of objects that GENERATE ≥1 continuous effect for the TWO
 /// `layers_dirty`-covered source categories: battlefield permanents with a
@@ -5975,6 +6072,13 @@ pub struct GameState {
     /// `trigger_definitions` whenever needed.
     #[serde(skip)]
     pub trigger_index: TriggerIndex,
+    /// CR 614.1: Derived replacement-effect candidate index. Rebuilt from the
+    /// legacy `active_replacements(state)` order before replacement pipeline
+    /// entry, invalidated after every applied replacement, and ignored whenever
+    /// dirty/uninitialized. `#[serde(skip, default)]` because it is pure derived
+    /// acceleration and must not affect equality or serialized state.
+    #[serde(skip, default)]
+    pub replacement_index: ReplacementIndex,
     /// CR 611.2 + CR 613.1: Derived generator index for the layer gather.
     /// `#[serde(skip)]` derived state (like `trigger_index`/`layers_dirty`);
     /// reconstructed from `state.battlefield` + `state.command_zone` +
@@ -5984,6 +6088,24 @@ pub struct GameState {
     /// must not break AI-search dedup on semantically-identical positions.
     #[serde(skip)]
     pub static_source_index: StaticSourceIndex,
+    /// O(1) presence index over `StaticModeKind` discriminants — "does any functioning
+    /// static of kind K exist on the board?" Rebuilt wholesale from `game_functioning_statics`
+    /// as a byproduct of the layers pipeline (`layers::refresh_static_mode_presence`), so it is
+    /// exactly `.any(kind)` for every kind. Lets discriminant-only scan gates (e.g. the
+    /// hexproof scans in `static_abilities`) skip an O(battlefield) `.any()` when zero statics
+    /// of that kind exist.
+    ///
+    /// DERIVED CACHE — `#[serde(skip)]` with an `all_present` default: before the first flush
+    /// makes the index precise, every consumer must fall through to its exact per-object check,
+    /// so the conservative all-true default can only cost a redundant scan, never miss a grant.
+    /// INTENTIONALLY omitted from `impl PartialEq for GameState` — CR 104.4b loop detection
+    /// compares semantic board state; derived caches must not perturb loop-detection equality
+    /// (like `static_source_index`/`static_gate_truth`).
+    #[serde(
+        skip,
+        default = "crate::types::statics::StaticModePresence::all_present"
+    )]
+    pub static_mode_presence: crate::types::statics::StaticModePresence,
     /// CR 732.2a loop-shortcut detection ring (PR-3). A bounded FIFO of recent
     /// post-resolution NORMALIZED board snapshots, captured at the post-pipeline frame
     /// of `game::engine::pass_priority_once_with_pipeline` (after
@@ -6090,6 +6212,15 @@ pub struct GameState {
     /// `handle_order_triggers` concatenates and dispatches.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pending_trigger_order: Option<PendingTriggerOrder>,
+
+    /// CR 603.3b: PhaseChanged occurrences whose delayed triggers were merged
+    /// into a simultaneous normal-trigger ordering batch before priority. The
+    /// generic delayed-trigger pass filters these exact occurrences so the same
+    /// delayed ability is not dispatched again. Transient engine coordination,
+    /// cleared at action/pipeline boundaries.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub consumed_before_priority_trigger_events:
+        Vec<crate::game::triggers::ConsumedTriggerEventOccurrence>,
 
     // CR 607.2a + CR 406.5: Exile tracking for "until leaves" linked abilities.
     #[serde(default)]
@@ -6219,6 +6350,21 @@ pub struct GameState {
     /// created entry occurs first.
     #[serde(default)]
     pub extra_phases: Vec<ExtraPhase>,
+
+    /// CR 508.1c + CR 506.1: When the current combat phase was scheduled with an
+    /// attacker restriction (Last Night Together / Bumi), only creatures matching
+    /// this filter may be declared as attackers. Set on entering that
+    /// BeginCombat, cleared at end of combat (CR 511.3). `None` during ordinary
+    /// (unrestricted) combats.
+    #[serde(default)]
+    pub current_combat_attacker_restriction: Option<TargetFilter>,
+    /// CR 611.2c: The source `ObjectId` of the effect that imposed
+    /// `current_combat_attacker_restriction`. Propagated from `ExtraPhase` so
+    /// `passes_combat_attacker_restriction` can build a correct `FilterContext`
+    /// for source-relative restriction predicates. `None` when there is no
+    /// active restriction.
+    #[serde(default)]
+    pub current_combat_attacker_restriction_source: Option<ObjectId>,
 
     // N-player support
     #[serde(default)]
@@ -7045,7 +7191,7 @@ pub struct GameState {
     /// Mirrors `last_zone_changed_ids` lifecycle: cleared at chain depth 0
     /// in `resolve_ability_chain` so cross-resolution leakage is impossible.
     #[serde(default)]
-    pub last_vote_ballots: im::Vector<(PlayerId, u8)>,
+    pub last_vote_ballots: im::Vector<(PlayerId, u32)>,
 
     /// CR 608.2c + CR 109.5: Player actions performed during the current
     /// top-level ability resolution. Distinct from turn-level trackers like
@@ -7451,6 +7597,20 @@ pub struct PendingReplacement {
     /// away. `None` for every other parked event (the common case).
     #[serde(default)]
     pub library_placement: Option<crate::types::ability::LibraryPosition>,
+    /// CR 120.4a: carries the excess-redirect rider ("Excess damage is dealt to
+    /// that creature's controller instead") across a damage replacement *choice*
+    /// pause. The resume in `handle_replacement_choice` rebuilds the
+    /// `DamageContext` from the source (which cannot re-derive an effect rider),
+    /// so it restores this onto the ctx to keep redirecting the excess. `None`
+    /// for every parked event that is not an excess-redirect damage hit.
+    #[serde(default)]
+    pub excess_recipient: Option<crate::types::ability::ExcessRecipient>,
+    /// CR 702.15b: the deferred lifelink bonus carried by a redirect leg (the
+    /// earlier creature leg's lethal). Preserved across the redirect leg's own
+    /// damage-replacement choice pause so the combined lifelink total is still
+    /// gained on resume. `0` for every parked event that is not such a leg.
+    #[serde(default)]
+    pub lifelink_bonus: u32,
     /// CR 614.12a: set when an optional `MayCost` accept already paid its cost
     /// but the payment paused for an interactive sub-choice (e.g. Mox Diamond's
     /// "discard a land card" with more than one eligible land surfaces a
@@ -7580,12 +7740,26 @@ pub struct ScheduledTurnControl {
 /// LIFO ordering ("the most recently created phase will occur first") is
 /// preserved by scanning `extra_phases` from the end (`rposition`) for the
 /// first matching anchor.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExtraPhase {
     /// The phase after which this extra phase is inserted (CR 500.8).
     pub anchor: Phase,
     /// The phase to insert.
     pub phase: Phase,
+    /// CR 508.1c: Attacker restriction active while this scheduled combat phase
+    /// is current (concretized at resolution to `TrackedSet` / `Typed` /
+    /// `SpecificObject`). `None` for ordinary extra phases. Carried here so the
+    /// restriction activates exactly when (and only when) this phase begins.
+    #[serde(default)]
+    pub attacker_restriction: Option<TargetFilter>,
+    /// CR 611.2c: The source `ObjectId` of the effect that imposed this
+    /// attacker restriction. Used to build a correct `FilterContext` at
+    /// evaluation time so source-relative restriction predicates (e.g.,
+    /// "creatures that share a color with this card") resolve against the actual
+    /// scheduling spell rather than a dummy sentinel. `None` for unrestricted
+    /// extra phases.
+    #[serde(default)]
+    pub attacker_restriction_source: Option<ObjectId>,
 }
 
 // Pin `GameState: Send + Sync` at compile time. Blocks accidental imports of
@@ -7843,7 +8017,9 @@ impl GameState {
             layers_dirty: LayersDirty::full(),
             static_gate_truth: im::HashMap::new(),
             trigger_index: TriggerIndex::default(),
+            replacement_index: ReplacementIndex::default(),
             static_source_index: StaticSourceIndex::default(),
+            static_mode_presence: crate::types::statics::StaticModePresence::all_present(),
             loop_detect_ring: std::collections::VecDeque::new(),
             next_timestamp: 1,
             public_state_dirty: PublicStateDirty::all_dirty(),
@@ -7859,6 +8035,7 @@ impl GameState {
             pending_trigger_entry: None,
             deferred_triggers: Vec::new(),
             pending_trigger_order: None,
+            consumed_before_priority_trigger_events: Vec::new(),
             exile_links: Vec::new(),
             paradigm_primed: Vec::new(),
             delayed_triggers: Vec::new(),
@@ -7877,6 +8054,8 @@ impl GameState {
             ],
             scheduled_turn_controls: Vec::new(),
             extra_phases: Vec::new(),
+            current_combat_attacker_restriction: None,
+            current_combat_attacker_restriction_source: None,
             seat_order,
             format_config: config,
             eliminated_players: Vec::new(),
@@ -8390,6 +8569,9 @@ impl PartialEq for GameState {
             // static_definitions). Including it would break AI-search dedup on
             // semantically-identical positions whose caches differ only in
             // freshness.
+            // `static_mode_presence` is INTENTIONALLY excluded for the same reason
+            // (CR 104.4b) — a derived O(1) presence cache rebuilt from
+            // `game_functioning_statics`; it must not perturb loop-detection equality.
             && self.next_timestamp == other.next_timestamp
             && self.public_state_dirty == other.public_state_dirty
             && self.state_revision == other.state_revision
@@ -8418,6 +8600,10 @@ impl PartialEq for GameState {
             && self.combat_phase_skip_next_turn == other.combat_phase_skip_next_turn
             && self.scheduled_turn_controls == other.scheduled_turn_controls
             && self.extra_phases == other.extra_phases
+            && self.current_combat_attacker_restriction
+                == other.current_combat_attacker_restriction
+            && self.current_combat_attacker_restriction_source
+                == other.current_combat_attacker_restriction_source
             && self.seat_order == other.seat_order
             && self.format_config == other.format_config
             && self.eliminated_players == other.eliminated_players
@@ -9045,6 +9231,61 @@ mod tests {
         // Reconstruct RNG from seed since it's skipped in serde
         deserialized.rng = ChaCha20Rng::seed_from_u64(deserialized.rng_seed);
         assert_eq!(state, deserialized);
+    }
+
+    /// Test E — deserialize-before-flush. `static_mode_presence` is `#[serde(skip)]` with an
+    /// `all_present` default, so a freshly-deserialized state (before any layers flush) has a
+    /// conservative all-present index. Gated consumers must stay CORRECT under that default by
+    /// falling through to their exact per-object scan; a full flush then makes the index
+    /// precise (a kind absent from the board reports false).
+    #[test]
+    fn static_mode_presence_defaults_all_present_after_deserialize() {
+        use crate::game::zones::create_object;
+        use crate::types::ability::StaticDefinition;
+        use crate::types::statics::{StaticMode, StaticModeKind};
+
+        let mut state = GameState::new_two_player(42);
+        let src = create_object(
+            &mut state,
+            CardId(1),
+            PlayerId(0),
+            "Detection Tower".to_string(),
+            Zone::Battlefield,
+        );
+        state.objects.get_mut(&src).unwrap().static_definitions =
+            vec![StaticDefinition::new(StaticMode::IgnoreHexproof)].into();
+        crate::game::layers::evaluate_layers(&mut state);
+
+        let json = serde_json::to_string(&state).unwrap();
+        let restored: GameState = serde_json::from_str(&json).unwrap();
+
+        // Before any flush: the conservative all-present default (a board-absent kind still
+        // reports present).
+        assert!(restored
+            .static_mode_presence
+            .contains(StaticModeKind::IgnoreHexproof));
+        assert!(restored
+            .static_mode_presence
+            .contains(StaticModeKind::Shroud));
+        // Gated-consumer correctness under the all-present default: the Detection Tower grant
+        // is found because the consumer falls through to its exact scan, not the index.
+        assert!(crate::game::static_abilities::player_ignores_hexproof(
+            &restored,
+            PlayerId(0)
+        ));
+
+        // After a full flush the index is precise: a board-absent kind reports false.
+        let mut flushed = restored;
+        flushed.layers_dirty = LayersDirty::full();
+        crate::game::layers::flush_layers(&mut flushed);
+        assert!(!crate::game::functioning_abilities::static_kind_present(
+            &flushed,
+            StaticModeKind::Shroud
+        ));
+        assert!(crate::game::functioning_abilities::static_kind_present(
+            &flushed,
+            StaticModeKind::IgnoreHexproof
+        ));
     }
 
     #[test]
